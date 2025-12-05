@@ -1,8 +1,28 @@
-import React, { useEffect, useRef, useCallback } from 'react';
+import React, { useEffect, useRef, useCallback, useState } from 'react';
 import {
   GitBranch, TrendingUp, Calculator, Sparkles, Layers, Box, Triangle, Archive,
-  Activity, Zap, BarChart3, BookOpen, ChevronRight, Shapes, Bot
+  Activity, Zap, BarChart3, BookOpen, ChevronRight, Shapes, Bot, X
 } from 'lucide-react';
+
+// 社交媒体图标组件
+const DouyinIcon = () => (
+  <svg viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5">
+    <path d="M12.53.02C13.84 0 15.14.01 16.44 0c.08 1.53.63 3.09 1.75 4.17 1.12 1.11 2.7 1.62 4.24 1.79v4.03c-1.44-.05-2.89-.35-4.2-.97-.57-.26-1.1-.59-1.62-.93-.01 2.92.01 5.84-.02 8.75-.08 1.4-.54 2.79-1.35 3.94-1.31 1.92-3.58 3.17-5.91 3.21-1.43.08-2.86-.31-4.08-1.03-2.02-1.19-3.44-3.37-3.65-5.71-.02-.5-.03-1-.01-1.49.18-1.9 1.12-3.72 2.58-4.96 1.66-1.44 3.98-2.13 6.15-1.72.02 1.48-.04 2.96-.04 4.44-.99-.32-2.15-.23-3.02.37-.63.41-1.11 1.04-1.36 1.75-.21.51-.15 1.07-.14 1.61.24 1.64 1.82 3.02 3.5 2.87 1.12-.01 2.19-.66 2.77-1.61.19-.33.4-.67.41-1.06.1-1.79.06-3.57.07-5.36.01-4.03-.01-8.05.02-12.07z"/>
+  </svg>
+);
+
+const XiaohongshuIcon = () => (
+  <svg viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5">
+    <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm-1-13h2v6h-2zm0 8h2v2h-2z"/>
+    <text x="6" y="16" fontSize="8" fontWeight="bold" fill="currentColor">小红书</text>
+  </svg>
+);
+
+const WechatIcon = () => (
+  <svg viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5">
+    <path d="M8.691 2.188C3.891 2.188 0 5.476 0 9.53c0 2.212 1.17 4.203 3.002 5.55a.59.59 0 0 1 .213.665l-.39 1.48c-.019.07-.048.141-.048.213 0 .163.13.295.29.295a.326.326 0 0 0 .167-.054l1.903-1.114a.864.864 0 0 1 .717-.098 10.16 10.16 0 0 0 2.837.403c.276 0 .543-.027.811-.05-.857-2.578.157-4.972 1.932-6.446 1.703-1.415 3.882-1.98 5.853-1.838-.576-3.583-4.196-6.348-8.596-6.348zM5.785 5.991c.642 0 1.162.529 1.162 1.18a1.17 1.17 0 0 1-1.162 1.178A1.17 1.17 0 0 1 4.623 7.17c0-.651.52-1.18 1.162-1.18zm5.813 0c.642 0 1.162.529 1.162 1.18a1.17 1.17 0 0 1-1.162 1.178 1.17 1.17 0 0 1-1.162-1.178c0-.651.52-1.18 1.162-1.18zm5.34 2.867c-1.797-.052-3.746.512-5.28 1.786-1.72 1.428-2.687 3.72-1.78 6.22.942 2.453 3.666 4.229 6.884 4.229.826 0 1.622-.12 2.361-.336a.722.722 0 0 1 .598.082l1.584.926a.272.272 0 0 0 .14.047c.134 0 .24-.111.24-.247 0-.06-.023-.12-.038-.177l-.327-1.233a.582.582 0 0 1-.023-.156.49.49 0 0 1 .201-.398C23.024 18.48 24 16.82 24 14.98c0-3.21-2.931-5.837-6.656-6.088V8.89c-.135-.01-.27-.027-.407-.03zm-2.53 3.274c.535 0 .969.44.969.982a.976.976 0 0 1-.969.983.976.976 0 0 1-.969-.983c0-.542.434-.982.97-.982zm4.844 0c.535 0 .969.44.969.982a.976.976 0 0 1-.969.983.976.976 0 0 1-.969-.983c0-.542.434-.982.969-.982z"/>
+  </svg>
+);
 
 interface HomePageProps {
   onNavigate: (module: 'static' | 'influence' | 'solver', subModule?: string) => void;
@@ -25,6 +45,7 @@ const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
   const shapesRef = useRef<FloatingShape[]>([]);
   const animationRef = useRef<number>(0);
   const timeRef = useRef(0);
+  const [showWechatQR, setShowWechatQR] = useState(false);
 
   const initParticles = useCallback((width: number, height: number) => {
     const colors = ['#818cf8', '#a78bfa', '#c4b5fd', '#6366f1', '#8b5cf6', '#a5b4fc'];
@@ -379,7 +400,96 @@ const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
             每个模块都配有 <span className="text-indigo-400 font-semibold">AI 智能助教</span>，随时解答你的疑问
           </span>
         </div>
+
+        {/* 作者信息 */}
+        <div className="mt-10 flex flex-col items-center gap-4 animate-fade-in-up animation-delay-1000">
+          <p className="text-slate-500 text-sm">关注作者，获取更多学习资源</p>
+          <div className="flex items-center gap-4">
+            {/* 抖音 */}
+            <a
+              href="https://www.douyin.com/user/self"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="group flex items-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-br from-slate-800/60 to-slate-900/60 border border-slate-700/50 hover:border-pink-500/40 hover:shadow-lg hover:shadow-pink-500/20 transition-all duration-300"
+            >
+              <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-pink-500 to-rose-600 flex items-center justify-center text-white group-hover:scale-110 transition-transform">
+                <DouyinIcon />
+              </div>
+              <span className="text-sm text-slate-300 group-hover:text-pink-300 transition-colors">抖音</span>
+            </a>
+
+            {/* 小红书 */}
+            <a
+              href="https://www.xiaohongshu.com/user/profile/67b884d2000000000e013859"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="group flex items-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-br from-slate-800/60 to-slate-900/60 border border-slate-700/50 hover:border-red-500/40 hover:shadow-lg hover:shadow-red-500/20 transition-all duration-300"
+            >
+              <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-red-500 to-red-600 flex items-center justify-center text-white group-hover:scale-110 transition-transform">
+                <svg viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5">
+                  <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 3c1.66 0 3 1.34 3 3s-1.34 3-3 3-3-1.34-3-3 1.34-3 3-3zm0 14.2c-2.5 0-4.71-1.28-6-3.22.03-1.99 4-3.08 6-3.08 1.99 0 5.97 1.09 6 3.08-1.29 1.94-3.5 3.22-6 3.22z"/>
+                </svg>
+              </div>
+              <span className="text-sm text-slate-300 group-hover:text-red-300 transition-colors">小红书</span>
+            </a>
+
+            {/* 微信 */}
+            <button
+              onClick={() => setShowWechatQR(true)}
+              className="group flex items-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-br from-slate-800/60 to-slate-900/60 border border-slate-700/50 hover:border-green-500/40 hover:shadow-lg hover:shadow-green-500/20 transition-all duration-300"
+            >
+              <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-green-500 to-green-600 flex items-center justify-center text-white group-hover:scale-110 transition-transform">
+                <WechatIcon />
+              </div>
+              <span className="text-sm text-slate-300 group-hover:text-green-300 transition-colors">微信</span>
+            </button>
+          </div>
+        </div>
       </div>
+
+      {/* 微信二维码弹窗 */}
+      {showWechatQR && (
+        <div 
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm animate-fade-in"
+          onClick={() => setShowWechatQR(false)}
+        >
+          <div 
+            className="relative bg-gradient-to-br from-slate-800 to-slate-900 rounded-3xl p-8 border border-slate-700/50 shadow-2xl shadow-green-500/10 max-w-sm mx-4 animate-scale-in"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* 关闭按钮 */}
+            <button
+              onClick={() => setShowWechatQR(false)}
+              className="absolute top-4 right-4 w-8 h-8 rounded-full bg-slate-700/50 hover:bg-slate-600/50 flex items-center justify-center text-slate-400 hover:text-white transition-colors"
+            >
+              <X size={18} />
+            </button>
+
+            {/* 标题 */}
+            <div className="text-center mb-6">
+              <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-gradient-to-br from-green-500 to-green-600 mb-4 shadow-lg shadow-green-500/30">
+                <WechatIcon />
+              </div>
+              <h3 className="text-xl font-bold text-white mb-2">扫码添加作者微信</h3>
+              <p className="text-sm text-slate-400">获取更多学习资源和技术交流</p>
+            </div>
+
+            {/* 二维码 */}
+            <div className="bg-white rounded-2xl p-4 mb-4">
+              <img 
+                src="./wechat-qr.png" 
+                alt="微信二维码" 
+                className="w-full h-auto rounded-lg"
+              />
+            </div>
+
+            {/* 提示 */}
+            <p className="text-center text-xs text-slate-500">
+              长按或截图保存，使用微信扫一扫
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* CSS 动画 */}
       <style>{`
@@ -419,6 +529,11 @@ const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
         .animation-delay-300 { animation-delay: 300ms; }
         .animation-delay-400 { animation-delay: 400ms; }
         .animation-delay-1000 { animation-delay: 1000ms; }
+        @keyframes scale-in {
+          from { opacity: 0; transform: scale(0.9); }
+          to { opacity: 1; transform: scale(1); }
+        }
+        .animate-scale-in { animation: scale-in 0.3s ease-out forwards; }
       `}</style>
     </div>
   );
