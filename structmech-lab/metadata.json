@@ -1,0 +1,5 @@
+{
+  "name": "StructMech Lab",
+  "description": "An interactive structural mechanics laboratory featuring beam bending, truss analysis, vibration dynamics, and stress transformation visualizations.",
+  "requestFramePermissions": []
+}
