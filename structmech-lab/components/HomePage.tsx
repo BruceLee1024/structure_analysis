@@ -290,16 +290,16 @@ const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
   ];
 
   const modules = [
-    { id: 'geometry', module: 'static', icon: <Shapes size={22} />, title: '几何组成分析', desc: '分析结构的几何组成，判断结构的几何不变性', color: 'from-blue-500 to-blue-600' },
-    { id: 'beam', module: 'static', icon: <Box size={22} />, title: '静定梁', desc: '学习简支梁、悬臂梁的内力计算和弯矩图绘制', color: 'from-purple-500 to-purple-600' },
-    { id: 'frame', module: 'static', icon: <GitBranch size={22} />, title: '静定刚架', desc: '理解刚架在各种荷载下的弯矩、剪力和轴力分布', color: 'from-pink-500 to-pink-600' },
-    { id: 'truss', module: 'static', icon: <Triangle size={22} />, title: '静定桁架', desc: '分析桁架结构在节点荷载作用下的杆件内力', color: 'from-cyan-500 to-cyan-600' },
-    { id: 'arch', module: 'static', icon: <Archive size={22} />, title: '静定拱', desc: '研究三铰拱的受力特性和推力计算', color: 'from-orange-500 to-orange-600' },
-    { id: 'static-il', module: 'influence', sub: 'static', icon: <Activity size={22} />, title: '静力法', desc: '通过平衡方程计算影响线纵标值', color: 'from-emerald-500 to-emerald-600' },
-    { id: 'kinematic', module: 'influence', sub: 'kinematic', icon: <Layers size={22} />, title: '机动法', desc: '利用虚功原理快速绘制影响线形状', color: 'from-amber-500 to-amber-600' },
-    { id: 'envelope', module: 'influence', sub: 'envelope', icon: <BarChart3 size={22} />, title: '内力包络图', desc: '计算移动荷载下各截面的最大内力', color: 'from-rose-500 to-rose-600' },
-    { id: 'application', module: 'influence', sub: 'application', icon: <TrendingUp size={22} />, title: '影响线应用', desc: '利用影响线求解实际荷载下的内力', color: 'from-indigo-500 to-indigo-600' },
-    { id: 'solver', module: 'solver', icon: <Calculator size={22} />, title: '结构求解器', desc: '交互式构建和求解梁、桁架结构的内力和变形', color: 'from-violet-500 to-violet-600' },
+    { id: 'geometry', module: 'static', icon: <Shapes size={26} />, title: '几何组成分析', desc: '分析结构的几何组成，判断结构的几何不变性', color: 'from-blue-500 to-blue-600' },
+    { id: 'beam', module: 'static', icon: <Box size={26} />, title: '静定梁', desc: '学习简支梁、悬臂梁的内力计算和弯矩图绘制', color: 'from-purple-500 to-purple-600' },
+    { id: 'frame', module: 'static', icon: <GitBranch size={26} />, title: '静定刚架', desc: '理解刚架在各种荷载下的弯矩、剪力和轴力分布', color: 'from-pink-500 to-pink-600' },
+    { id: 'truss', module: 'static', icon: <Triangle size={26} />, title: '静定桁架', desc: '分析桁架结构在节点荷载作用下的杆件内力', color: 'from-cyan-500 to-cyan-600' },
+    { id: 'arch', module: 'static', icon: <Archive size={26} />, title: '静定拱', desc: '研究三铰拱的受力特性和推力计算', color: 'from-orange-500 to-orange-600' },
+    { id: 'static-il', module: 'influence', sub: 'static', icon: <Activity size={26} />, title: '静力法', desc: '通过平衡方程计算影响线纵标值', color: 'from-emerald-500 to-emerald-600' },
+    { id: 'kinematic', module: 'influence', sub: 'kinematic', icon: <Layers size={26} />, title: '机动法', desc: '利用虚功原理快速绘制影响线形状', color: 'from-amber-500 to-amber-600' },
+    { id: 'envelope', module: 'influence', sub: 'envelope', icon: <BarChart3 size={26} />, title: '内力包络图', desc: '计算移动荷载下各截面的最大内力', color: 'from-rose-500 to-rose-600' },
+    { id: 'application', module: 'influence', sub: 'application', icon: <TrendingUp size={26} />, title: '影响线应用', desc: '利用影响线求解实际荷载下的内力', color: 'from-indigo-500 to-indigo-600' },
+    { id: 'solver', module: 'solver', icon: <Calculator size={26} />, title: '结构求解器', desc: '交互式构建和求解梁、桁架结构的内力和变形', color: 'from-violet-500 to-violet-600' },
   ];
 
   const handleModuleClick = (item: (typeof modules)[0]) => {
@@ -369,23 +369,23 @@ const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
         </div>
 
         {/* 模块卡片 */}
-        <div className="grid grid-cols-5 gap-4 max-w-6xl w-full mb-14">
+        <div className="grid grid-cols-5 gap-5 max-w-7xl w-full mb-14">
           {modules.map((item, i) => (
             <button
               key={item.id}
               onClick={() => handleModuleClick(item)}
-              className="group relative bg-gradient-to-br from-slate-800/60 to-slate-900/60 backdrop-blur-sm border border-slate-700/50 rounded-2xl p-5 text-left transition-all duration-300 hover:border-indigo-500/40 hover:scale-[1.03] hover:shadow-2xl hover:shadow-indigo-500/20 animate-fade-in-up"
+              className="group relative bg-gradient-to-br from-slate-800/60 to-slate-900/60 backdrop-blur-sm border border-slate-700/50 rounded-2xl p-6 text-left transition-all duration-300 hover:border-indigo-500/40 hover:scale-[1.03] hover:shadow-2xl hover:shadow-indigo-500/20 animate-fade-in-up"
               style={{ animationDelay: `${600 + i * 50}ms` }}
             >
               <div className="absolute inset-0 rounded-2xl bg-gradient-to-br from-indigo-500/5 to-violet-500/5 opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
-              <div className={`relative inline-flex items-center justify-center w-12 h-12 rounded-xl bg-gradient-to-br ${item.color} text-white mb-4 shadow-lg shadow-indigo-900/30 group-hover:shadow-xl group-hover:shadow-indigo-500/30 group-hover:scale-110 transition-all duration-300`}>
+              <div className={`relative inline-flex items-center justify-center w-14 h-14 rounded-xl bg-gradient-to-br ${item.color} text-white mb-4 shadow-lg shadow-indigo-900/30 group-hover:shadow-xl group-hover:shadow-indigo-500/30 group-hover:scale-110 transition-all duration-300`}>
                 {item.icon}
               </div>
-              <h3 className="relative text-base font-bold text-white mb-2 group-hover:text-indigo-100 transition-colors">{item.title}</h3>
-              <p className="relative text-xs text-slate-400 mb-4 line-clamp-2 leading-relaxed group-hover:text-slate-300 transition-colors">{item.desc}</p>
-              <div className="relative flex items-center text-xs font-semibold text-indigo-400 group-hover:text-indigo-300 transition-colors">
+              <h3 className="relative text-lg font-bold text-white mb-2 group-hover:text-indigo-100 transition-colors">{item.title}</h3>
+              <p className="relative text-sm text-slate-400 mb-4 line-clamp-2 leading-relaxed group-hover:text-slate-300 transition-colors">{item.desc}</p>
+              <div className="relative flex items-center text-sm font-semibold text-indigo-400 group-hover:text-indigo-300 transition-colors">
                 开始学习
-                <ChevronRight size={14} className="ml-1 group-hover:translate-x-2 transition-transform duration-300" />
+                <ChevronRight size={16} className="ml-1 group-hover:translate-x-2 transition-transform duration-300" />
               </div>
             </button>
           ))}
