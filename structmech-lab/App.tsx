@@ -4,10 +4,11 @@ import SolverModule from './components/SolverModule';
 import StaticModule from './components/StaticModule';
 import InfluenceModule from './components/InfluenceModule';
 import HomePage from './components/HomePage';
+import ActivationModal from './components/ActivationModal';
 import {
   Beaker, Calculator, GitBranch, ChevronDown, ChevronRight, Shapes, Minus, Square,
   Triangle, Archive, Layers, TrendingUp, Activity, Zap, BarChart3, Home, Settings,
-  X, Key, Save, Sparkles, Check, Wifi, WifiOff, Loader2, ExternalLink, HelpCircle
+  X, Key, Save, Sparkles, Check, Wifi, WifiOff, Loader2, ExternalLink, HelpCircle, Lock
 } from 'lucide-react';
 
 type StaticSubModule = 'geometry' | 'beam' | 'frame' | 'truss' | 'arch' | 'composite';
@@ -21,6 +22,35 @@ const AI_MODELS = [
   { id: 'moonshot', name: 'Moonshot', apiUrl: 'https://api.moonshot.cn/v1/chat/completions', model: 'moonshot-v1-8k', getKeyUrl: 'https://platform.moonshot.cn/console/api-keys', desc: 'Kimi' },
   { id: 'doubao', name: '豆包', apiUrl: 'https://ark.cn-beijing.volces.com/api/v3/chat/completions', model: 'doubao-lite-4k', getKeyUrl: 'https://console.volcengine.com/ark/region:ark+cn-beijing/apiKey', desc: '字节' },
 ];
+
+// 有效的激活码列表（实际使用时可以改为从服务器验证）
+// 激活码验证算法：基于校验位验证，无需预存激活码
+const validateActivationCode = (code: string): boolean => {
+  // 格式检查：XXXX-XXXX-XXXX-XXXX
+  const pattern = /^[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}$/;
+  if (!pattern.test(code.toUpperCase())) return false;
+  
+  const parts = code.toUpperCase().split('-');
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+  
+  // 计算前三段的校验和
+  let checksum = 0;
+  for (let i = 0; i < 3; i++) {
+    for (let j = 0; j < 4; j++) {
+      checksum += chars.indexOf(parts[i][j]) * (i * 4 + j + 1);
+    }
+  }
+  
+  // 验证第四段是否匹配校验和
+  const expectedCheck = [
+    chars[(checksum * 7) % 36],
+    chars[(checksum * 13) % 36],
+    chars[(checksum * 17) % 36],
+    chars[(checksum * 23) % 36]
+  ].join('');
+  
+  return parts[3] === expectedCheck;
+};
 
 const App: React.FC = () => {
   const [activeModule, setActiveModule] = useState<ModuleType | 'HOME'>('HOME');
@@ -37,6 +67,30 @@ const App: React.FC = () => {
   const [saved, setSaved] = useState(false);
   const [testStatus, setTestStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle');
   const [testMessage, setTestMessage] = useState('');
+
+  // 激活码状态
+  const [isActivated, setIsActivated] = useState(() => localStorage.getItem('solver_activated') === 'true');
+  const [showActivationModal, setShowActivationModal] = useState(false);
+
+  // 验证激活码
+  const handleActivate = (code: string): boolean => {
+    if (validateActivationCode(code)) {
+      setIsActivated(true);
+      localStorage.setItem('solver_activated', 'true');
+      localStorage.setItem('activation_code', code);
+      return true;
+    }
+    return false;
+  };
+
+  // 点击求解器模块
+  const handleSolverClick = () => {
+    if (isActivated) {
+      setActiveModule(ModuleType.SOLVER);
+    } else {
+      setShowActivationModal(true);
+    }
+  };
 
   const saveSettings = () => {
     localStorage.setItem('ai_model', selectedModelId);
@@ -102,7 +156,12 @@ const App: React.FC = () => {
       setInfluenceExpanded(true);
       if (subModule) setActiveInfluenceSub(subModule as InfluenceSubModule);
     } else {
-      setActiveModule(ModuleType.SOLVER);
+      // 求解器需要激活码
+      if (isActivated) {
+        setActiveModule(ModuleType.SOLVER);
+      } else {
+        setShowActivationModal(true);
+      }
     }
   };
 
@@ -112,7 +171,17 @@ const App: React.FC = () => {
   const handleInfluenceSubClick = (subId: InfluenceSubModule) => { setActiveInfluenceSub(subId); setActiveModule(ModuleType.INFLUENCE); };
 
   if (activeModule === 'HOME') {
-    return <div className="h-screen overflow-hidden"><HomePage onNavigate={handleHomeNavigate} /></div>;
+    return (
+      <div className="h-screen overflow-hidden">
+        <HomePage onNavigate={handleHomeNavigate} />
+        <ActivationModal
+          isOpen={showActivationModal}
+          onClose={() => setShowActivationModal(false)}
+          onActivate={handleActivate}
+          isActivated={isActivated}
+        />
+      </div>
+    );
   }
 
   return (
@@ -166,8 +235,10 @@ const App: React.FC = () => {
             )}
           </div>
 
-          <button onClick={() => setActiveModule(ModuleType.SOLVER)} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-semibold transition-all ${activeModule === ModuleType.SOLVER ? 'bg-blue-50 text-blue-700 shadow-sm' : 'text-slate-600 hover:bg-slate-50'}`}>
-            <Calculator size={20} /><span>结构求解器</span>
+          <button onClick={handleSolverClick} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-semibold transition-all ${activeModule === ModuleType.SOLVER ? 'bg-blue-50 text-blue-700 shadow-sm' : 'text-slate-600 hover:bg-slate-50'}`}>
+            <Calculator size={20} />
+            <span>结构求解器</span>
+            {!isActivated && <Lock size={14} className="ml-auto text-amber-500" />}
           </button>
         </nav>
 
@@ -290,6 +361,14 @@ const App: React.FC = () => {
           {activeModule === ModuleType.SOLVER && <SolverModule />}
         </div>
       </main>
+
+      {/* Activation Modal */}
+      <ActivationModal
+        isOpen={showActivationModal}
+        onClose={() => setShowActivationModal(false)}
+        onActivate={handleActivate}
+        isActivated={isActivated}
+      />
     </div>
   );
 };
