@@ -68,16 +68,21 @@ const App: React.FC = () => {
   const [testStatus, setTestStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle');
   const [testMessage, setTestMessage] = useState('');
 
-  // 激活码状态
-  const [isActivated, setIsActivated] = useState(() => localStorage.getItem('solver_activated') === 'true');
+  // 激活码状态 - 检查是否有有效的激活码
+  const [isActivated, setIsActivated] = useState(() => {
+    const savedCode = localStorage.getItem('activationCode');
+    if (savedCode) {
+      return validateActivationCode(savedCode);
+    }
+    return false;
+  });
   const [showActivationModal, setShowActivationModal] = useState(false);
 
   // 验证激活码
   const handleActivate = (code: string): boolean => {
     if (validateActivationCode(code)) {
       setIsActivated(true);
-      localStorage.setItem('solver_activated', 'true');
-      localStorage.setItem('activation_code', code);
+      localStorage.setItem('activationCode', code);
       return true;
     }
     return false;
