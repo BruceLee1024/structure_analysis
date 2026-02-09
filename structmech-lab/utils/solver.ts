@@ -284,18 +284,18 @@ export const solveStructure = (nodes: SolverNode[], elements: SolverElement[], l
             const M = load.magnitude;
             const a = (load.location !== undefined ? load.location : 0.5) * L;
             const b = L - a;
-            m1 = M * b * (2 * a - b) / (L * L); m2 = M * a * (2 * b - a) / (L * L);
-            v1 = -6 * M * a * b / (L * L * L); v2 = 6 * M * a * b / (L * L * L);
+            m1 = M * b * (2 * a - b) / (L * L); m2 = -M * a * (2 * b - a) / (L * L);
+            v1 = 2 * M * a / (L * L); v2 = -2 * M * a / (L * L);
         }
 
         if (el.releaseStart) {
             const dm1 = -m1; m1 += dm1; m2 += 0.5 * dm1; 
-            const dV = -1.5 * dm1 / L; v1 += dV; v2 -= dV;
+            const dV = 1.5 * dm1 / L; v1 += dV; v2 -= dV;
         }
         if (el.releaseEnd) {
              const dm2 = -m2; m2 += dm2; 
              if (!el.releaseStart) {
-                 m1 += 0.5 * dm2; const dV1 = -1.5 * dm2 / L; v1 += dV1; v2 -= dV1;
+                 m1 += 0.5 * dm2; const dV1 = 1.5 * dm2 / L; v1 += dV1; v2 -= dV1;
              } else {
                  if (load.type === 'distributed') {
                      const mag = load.magnitude; const dir = load.direction || 'y';
@@ -449,18 +449,18 @@ export const solveStructure = (nodes: SolverNode[], elements: SolverElement[], l
               fx1 = -Px*b/L; fx2 = -Px*a/L;
           } else if (l.type === 'moment') {
                const M = l.magnitude; const a = locParam * L; const b = L - a;
-               m1 = M*b*(2*a-b)/(L*L); m2 = M*a*(2*b-a)/(L*L);
-               v1 = -6*M*a*b/(L*L*L); v2 = 6*M*a*b/(L*L*L);
+               m1 = M*b*(2*a-b)/(L*L); m2 = -M*a*(2*b-a)/(L*L);
+               v1 = 2*M*a/(L*L); v2 = -2*M*a/(L*L);
           }
 
           if (el.releaseStart) {
               const dm1 = -m1; m1 += dm1; m2 += 0.5*dm1;
-              const dV = -1.5 * dm1 / L; v1 += dV; v2 -= dV;
+              const dV = 1.5 * dm1 / L; v1 += dV; v2 -= dV;
           }
           if (el.releaseEnd) {
               const dm2 = -m2; m2 += dm2;
               if (!el.releaseStart) {
-                  m1 += 0.5*dm2; const dV1 = -1.5 * dm2 / L; v1 += dV1; v2 -= dV1;
+                  m1 += 0.5*dm2; const dV1 = 1.5 * dm2 / L; v1 += dV1; v2 -= dV1;
               } else {
                   if (l.type === 'distributed') {
                       const mag = l.magnitude; const dir = l.direction || 'y';
