@@ -19,9 +19,10 @@ const multiplyMatrixVector = (M: number[][], v: number[]) => {
     return res;
 };
 
-const solveLinearSystem = (A: number[][], b: number[]) => {
+const solveLinearSystem = (A: number[][], b: number[]): { x: number[]; singularCount: number } => {
   const n = b.length;
   const M = A.map((row, i) => [...row, b[i]]);
+  let singularCount = 0;
 
   for (let i = 0; i < n; i++) {
     let maxRow = i;
@@ -34,6 +35,7 @@ const solveLinearSystem = (A: number[][], b: number[]) => {
         M[i][i] = 1.0;
         M[i][n] = 0.0;
         for(let j=i+1; j<n; j++) M[i][j] = 0;
+        singularCount++;
         continue;
     }
 
@@ -52,7 +54,107 @@ const solveLinearSystem = (A: number[][], b: number[]) => {
     for (let j = i + 1; j < n; j++) sum += M[i][j] * x[j];
     x[i] = (M[i][n] - sum) / M[i][i];
   }
-  return x;
+  return { x, singularCount };
+};
+
+// ===== Shared helper functions =====
+
+const RIGID_MULTIPLIER = 1e4;
+
+const computeEffectiveProperties = (el: SolverElement, stiffnessType: StiffnessType) => {
+    let effE = el.E * 1e6;
+    let effA = el.A * 1e-4;
+    let effI = el.I * 1e-6;
+    if (stiffnessType === 'AxiallyRigid') effA *= RIGID_MULTIPLIER;
+    else if (stiffnessType === 'Rigid') effE *= RIGID_MULTIPLIER;
+    return { effE, effA, effI };
+};
+
+const buildLocalStiffnessMatrix = (effE: number, effA: number, effI: number, L: number, releaseStart?: boolean, releaseEnd?: boolean): number[][] => {
+    const k_local = createMatrix(6, 6);
+    const k_axial = effE * effA / L;
+    k_local[0][0] = k_axial;  k_local[0][3] = -k_axial;
+    k_local[3][0] = -k_axial; k_local[3][3] = k_axial;
+
+    if (releaseStart && releaseEnd) {
+        // pin-pin: no bending stiffness
+    } else if (releaseStart) {
+        const k33 = 3 * effE * effI / (L * L * L);
+        const k32 = 3 * effE * effI / (L * L);
+        const k31 = 3 * effE * effI / L;
+        k_local[1][1] = k33;   k_local[1][4] = -k33; k_local[1][5] = k32;
+        k_local[4][1] = -k33;  k_local[4][4] = k33;  k_local[4][5] = -k32;
+        k_local[5][1] = k32;   k_local[5][4] = -k32; k_local[5][5] = k31;
+    } else if (releaseEnd) {
+        const k33 = 3 * effE * effI / (L * L * L);
+        const k32 = 3 * effE * effI / (L * L);
+        const k31 = 3 * effE * effI / L;
+        k_local[1][1] = k33;   k_local[1][2] = k32;  k_local[1][4] = -k33;
+        k_local[2][1] = k32;   k_local[2][2] = k31;  k_local[2][4] = -k32;
+        k_local[4][1] = -k33;  k_local[4][2] = -k32; k_local[4][4] = k33;
+    } else {
+        const kb1 = 12 * effE * effI / (L * L * L);
+        const kb2 = 6 * effE * effI / (L * L);
+        const kb3 = 4 * effE * effI / L;
+        const kb4 = 2 * effE * effI / L;
+        k_local[1][1] = kb1; k_local[1][2] = kb2; k_local[1][4] = -kb1; k_local[1][5] = kb2;
+        k_local[2][1] = kb2; k_local[2][2] = kb3; k_local[2][4] = -kb2; k_local[2][5] = kb4;
+        k_local[4][1] = -kb1;k_local[4][2] = -kb2;k_local[4][4] = kb1;  k_local[4][5] = -kb2;
+        k_local[5][1] = kb2; k_local[5][2] = kb4; k_local[5][4] = -kb2; k_local[5][5] = kb3;
+    }
+    return k_local;
+};
+
+const computeFixedEndForces = (load: Load, L: number, c: number, s: number, releaseStart?: boolean, releaseEnd?: boolean): number[] => {
+    let m1 = 0, m2 = 0, v1 = 0, v2 = 0, fx1 = 0, fx2 = 0;
+    const locParam = load.location !== undefined ? load.location : 0.5;
+
+    if (load.type === 'distributed') {
+        const mag = load.magnitude; const dir = load.direction || 'y';
+        const wx = (dir === 'x') ? mag * c : mag * s;
+        const wy = (dir === 'x') ? mag * -s : mag * c;
+        m1 = -wy * L * L / 12; m2 = wy * L * L / 12;
+        v1 = -wy * L / 2; v2 = -wy * L / 2;
+        fx1 = -wx * L / 2; fx2 = -wx * L / 2;
+    } else if (load.type === 'point') {
+        const mag = load.magnitude; const dir = load.direction || 'y';
+        const a = locParam * L; const b = L - a;
+        const Px = (dir === 'x') ? mag * c : mag * s;
+        const Py = (dir === 'x') ? mag * -s : mag * c;
+        m1 = -Py * a * b * b / (L * L); m2 = Py * a * a * b / (L * L);
+        v1 = -Py * b * b * (3 * a + b) / (L * L * L); v2 = -Py * a * a * (a + 3 * b) / (L * L * L);
+        fx1 = -Px * b / L; fx2 = -Px * a / L;
+    } else if (load.type === 'moment') {
+        const M = load.magnitude; const a = locParam * L; const b = L - a;
+        m1 = M * b * (2 * a - b) / (L * L); m2 = -M * a * (2 * b - a) / (L * L);
+        v1 = 2 * M * a / (L * L); v2 = -2 * M * a / (L * L);
+    }
+
+    if (releaseStart) {
+        const dm1 = -m1; m1 += dm1; m2 += 0.5 * dm1;
+        const dV = 1.5 * dm1 / L; v1 += dV; v2 -= dV;
+    }
+    if (releaseEnd) {
+        const dm2 = -m2; m2 += dm2;
+        if (!releaseStart) {
+            m1 += 0.5 * dm2; const dV1 = 1.5 * dm2 / L; v1 += dV1; v2 -= dV1;
+        } else {
+            if (load.type === 'distributed') {
+                const mag = load.magnitude; const dir = load.direction || 'y';
+                const wy = (dir === 'x') ? mag * -s : mag * c;
+                v1 = -wy * L / 2; v2 = -wy * L / 2;
+            } else if (load.type === 'point') {
+                const mag = load.magnitude; const dir = load.direction || 'y';
+                const a = locParam * L; const b = L - a;
+                const Py = (dir === 'x') ? mag * -s : mag * c;
+                v1 = -Py * b / L; v2 = -Py * a / L;
+            } else if (load.type === 'moment') {
+                const M_val = load.magnitude; v1 = -M_val / L; v2 = M_val / L;
+            }
+            fx1 = 0; fx2 = 0; m1 = 0; m2 = 0;
+        }
+    }
+    return [fx1, v1, m1, fx2, v2, m2];
 };
 
 export const calculateExactValues = (
@@ -129,6 +231,8 @@ export const solveStructure = (nodes: SolverNode[], elements: SolverElement[], l
   
   const nodeIndexMap = new Map<number, number>();
   nodes.forEach((n, i) => nodeIndexMap.set(n.id, i));
+  const nodeMap = new Map<number, SolverNode>();
+  nodes.forEach(n => nodeMap.set(n.id, n));
   
   const getDofIndex = (nodeId: number) => {
       const idx = nodeIndexMap.get(nodeId);
@@ -143,8 +247,8 @@ export const solveStructure = (nodes: SolverNode[], elements: SolverElement[], l
     const idx2 = getDofIndex(el.endNode);
     if (idx1 === -1 || idx2 === -1) return;
 
-    const n1 = nodes.find(n => n.id === el.startNode);
-    const n2 = nodes.find(n => n.id === el.endNode);
+    const n1 = nodeMap.get(el.startNode);
+    const n2 = nodeMap.get(el.endNode);
     if (!n1 || !n2) return;
     
     const dx = n2.x - n1.x;
@@ -155,51 +259,8 @@ export const solveStructure = (nodes: SolverNode[], elements: SolverElement[], l
     const c = dx / L;
     const s = dy / L;
 
-    const RIGID_MULTIPLIER = 1e4;
-    
-    let effE = el.E * 1e6;
-    let effA = el.A * 1e-4;
-    let effI = el.I * 1e-6;
-
-    if (stiffnessType === 'AxiallyRigid') {
-        effA *= RIGID_MULTIPLIER;
-    } else if (stiffnessType === 'Rigid') {
-        effE *= RIGID_MULTIPLIER; 
-    }
-
-    const k_axial = effE * effA / L;
-    let k_local = createMatrix(6, 6);
-
-    k_local[0][0] = k_axial;  k_local[0][3] = -k_axial;
-    k_local[3][0] = -k_axial; k_local[3][3] = k_axial;
-
-    let k33 = 0, k32 = 0, k31 = 0, kb1=0, kb2=0, kb3=0, kb4=0;
-    
-    if (el.releaseStart && el.releaseEnd) {
-    } else if (el.releaseStart) {
-        k33 = 3 * effE * effI / (L * L * L);
-        k32 = 3 * effE * effI / (L * L);
-        k31 = 3 * effE * effI / L;
-        k_local[1][1] = k33;   k_local[1][4] = -k33; k_local[1][5] = k32;
-        k_local[4][1] = -k33;  k_local[4][4] = k33;  k_local[4][5] = -k32;
-        k_local[5][1] = k32;   k_local[5][4] = -k32; k_local[5][5] = k31;
-    } else if (el.releaseEnd) {
-        k33 = 3 * effE * effI / (L * L * L);
-        k32 = 3 * effE * effI / (L * L);
-        k31 = 3 * effE * effI / L;
-        k_local[1][1] = k33;   k_local[1][2] = k32;  k_local[1][4] = -k33;
-        k_local[2][1] = k32;   k_local[2][2] = k31;  k_local[2][4] = -k32;
-        k_local[4][1] = -k33;  k_local[4][2] = -k32; k_local[4][4] = k33;
-    } else {
-        kb1 = 12 * effE * effI / (L * L * L);
-        kb2 = 6 * effE * effI / (L * L);
-        kb3 = 4 * effE * effI / L;
-        kb4 = 2 * effE * effI / L;
-        k_local[1][1] = kb1; k_local[1][2] = kb2; k_local[1][4] = -kb1; k_local[1][5] = kb2;
-        k_local[2][1] = kb2; k_local[2][2] = kb3; k_local[2][4] = -kb2; k_local[2][5] = kb4;
-        k_local[4][1] = -kb1;k_local[4][2] = -kb2;k_local[4][4] = kb1;  k_local[4][5] = -kb2;
-        k_local[5][1] = kb2; k_local[5][2] = kb4; k_local[5][4] = -kb2; k_local[5][5] = kb3;
-    }
+    const { effE, effA, effI } = computeEffectiveProperties(el, stiffnessType);
+    const k_local = buildLocalStiffnessMatrix(effE, effA, effI, L, el.releaseStart, el.releaseEnd);
 
     const T = createMatrix(6, 6);
     T[0][0]=c; T[0][1]=s;
@@ -245,8 +306,8 @@ export const solveStructure = (nodes: SolverNode[], elements: SolverElement[], l
         const idx2 = getDofIndex(el.endNode);
         if (idx1 === -1 || idx2 === -1) return;
 
-        const n1 = nodes.find(n => n.id === el.startNode);
-        const n2 = nodes.find(n => n.id === el.endNode);
+        const n1 = nodeMap.get(el.startNode);
+        const n2 = nodeMap.get(el.endNode);
         if (!n1 || !n2) return;
 
         const dx = n2.x - n1.x;
@@ -255,65 +316,7 @@ export const solveStructure = (nodes: SolverNode[], elements: SolverElement[], l
         const c = dx / L;
         const s = dy / L;
 
-        let m1 = 0, m2 = 0, v1 = 0, v2 = 0, fx1 = 0, fx2 = 0;
-
-        if (load.type === 'distributed') {
-            const mag = load.magnitude;
-            const dir = load.direction || 'y';
-            let wx = (dir === 'x') ? mag * c : mag * s; 
-            let wy = (dir === 'x') ? mag * -s : mag * c; 
-            
-            m1 = -wy * L * L / 12; m2 = wy * L * L / 12;
-            v1 = -wy * L / 2; v2 = -wy * L / 2;
-            fx1 = -wx * L / 2; fx2 = -wx * L / 2;
-
-        } else if (load.type === 'point') {
-            const mag = load.magnitude;
-            const a = (load.location !== undefined ? load.location : 0.5) * L;
-            const b = L - a;
-            const dir = load.direction || 'y';
-            
-            let Px = (dir === 'x') ? mag * c : mag * s; 
-            let Py = (dir === 'x') ? mag * -s : mag * c;
-
-            m1 = -Py * a * b * b / (L * L); m2 = Py * a * a * b / (L * L);
-            v1 = -Py * b * b * (3 * a + b) / (L * L * L); v2 = -Py * a * a * (a + 3 * b) / (L * L * L);
-            fx1 = -Px * b / L; fx2 = -Px * a / L;
-
-        } else if (load.type === 'moment') {
-            const M = load.magnitude;
-            const a = (load.location !== undefined ? load.location : 0.5) * L;
-            const b = L - a;
-            m1 = M * b * (2 * a - b) / (L * L); m2 = -M * a * (2 * b - a) / (L * L);
-            v1 = 2 * M * a / (L * L); v2 = -2 * M * a / (L * L);
-        }
-
-        if (el.releaseStart) {
-            const dm1 = -m1; m1 += dm1; m2 += 0.5 * dm1; 
-            const dV = 1.5 * dm1 / L; v1 += dV; v2 -= dV;
-        }
-        if (el.releaseEnd) {
-             const dm2 = -m2; m2 += dm2; 
-             if (!el.releaseStart) {
-                 m1 += 0.5 * dm2; const dV1 = 1.5 * dm2 / L; v1 += dV1; v2 -= dV1;
-             } else {
-                 if (load.type === 'distributed') {
-                     const mag = load.magnitude; const dir = load.direction || 'y';
-                     let wy = (dir === 'x') ? mag * -s : mag * c;
-                     v1 = -wy * L / 2; v2 = -wy * L / 2;
-                 } else if (load.type === 'point') {
-                     const mag = load.magnitude; const dir = load.direction || 'y';
-                     const a = (load.location !== undefined ? load.location : 0.5) * L; const b = L - a;
-                     let Py = (dir === 'x') ? mag * -s : mag * c;
-                     v1 = -Py * b / L; v2 = -Py * a / L;
-                 } else if (load.type === 'moment') {
-                     const M = load.magnitude; v1 = -M / L; v2 = M / L;
-                 }
-                 fx1 = 0; fx2 = 0; m1 = 0; m2 = 0;
-             }
-        }
-
-        const fem_local = [fx1, v1, m1, fx2, v2, m2];
+        const fem_local = computeFixedEndForces(load, L, c, s, el.releaseStart, el.releaseEnd);
         const map = [idx1, idx1+1, idx1+2, idx2, idx2+1, idx2+2];
         
         F_global[map[0]] -= c*fem_local[0] - s*fem_local[1];
@@ -344,14 +347,22 @@ export const solveStructure = (nodes: SolverNode[], elements: SolverElement[], l
     });
   });
 
-  const U = solveLinearSystem(K_reduced, F_reduced);
+  const { x: U, singularCount } = solveLinearSystem(K_reduced, F_reduced);
+  const solverError = singularCount > 0 ? `刚度矩阵奇异（${singularCount} 个自由度无法求解），结构可能约束不足或存在机构` : undefined;
 
   const results: ElementResult[] = [];
   const reactions: { nodeId: number; fx: number; fy: number; m: number }[] = [];
+  const displacements: { nodeId: number; dx: number; dy: number; rotation: number }[] = [];
 
   const KU = multiplyMatrixVector(K_global, U);
   nodes.forEach((node) => {
       const idx = nodeIndexMap.get(node.id)! * 3;
+      displacements.push({
+          nodeId: node.id,
+          dx: cleanValue(U[idx]),
+          dy: cleanValue(U[idx + 1]),
+          rotation: cleanValue(U[idx + 2])
+      });
       if (node.restraints.some(r => r)) {
           reactions.push({
               nodeId: node.id,
@@ -369,8 +380,8 @@ export const solveStructure = (nodes: SolverNode[], elements: SolverElement[], l
       const idx2 = getDofIndex(el.endNode);
       if (idx1 === -1 || idx2 === -1) return;
 
-      const n1 = nodes.find(n => n.id === el.startNode)!;
-      const n2 = nodes.find(n => n.id === el.endNode)!;
+      const n1 = nodeMap.get(el.startNode)!;
+      const n2 = nodeMap.get(el.endNode)!;
 
       const u_global_el = [
           U[idx1], U[idx1+1], U[idx1+2],
@@ -392,37 +403,8 @@ export const solveStructure = (nodes: SolverNode[], elements: SolverElement[], l
           u_global_el[5]
       ];
 
-      const RIGID_MULTIPLIER = 1e4;
-      let effE = el.E * 1e6; 
-      let effA = el.A * 1e-4; 
-      let effI = el.I * 1e-6; 
-
-      if (stiffnessType === 'AxiallyRigid') effA *= RIGID_MULTIPLIER;
-      else if (stiffnessType === 'Rigid') effE *= RIGID_MULTIPLIER;
-
-      let k_local = createMatrix(6, 6);
-      const k_axial = effE * effA / L;
-      k_local[0][0] = k_axial;  k_local[0][3] = -k_axial;
-      k_local[3][0] = -k_axial; k_local[3][3] = k_axial;
-
-      if (el.releaseStart && el.releaseEnd) {
-      } else if (el.releaseStart) {
-        const k33 = 3*effE*effI/(L*L*L); const k32 = 3*effE*effI/(L*L); const k31 = 3*effE*effI/L;
-        k_local[1][1]=k33; k_local[1][4]=-k33; k_local[1][5]=k32;
-        k_local[4][1]=-k33; k_local[4][4]=k33; k_local[4][5]=-k32;
-        k_local[5][1]=k32; k_local[5][4]=-k32; k_local[5][5]=k31;
-      } else if (el.releaseEnd) {
-        const k33 = 3*effE*effI/(L*L*L); const k32 = 3*effE*effI/(L*L); const k31 = 3*effE*effI/L;
-        k_local[1][1]=k33; k_local[1][2]=k32; k_local[1][4]=-k33;
-        k_local[2][1]=k32; k_local[2][2]=k31; k_local[2][4]=-k32;
-        k_local[4][1]=-k33; k_local[4][2]=-k32; k_local[4][4]=k33;
-      } else {
-        const kb1=12*effE*effI/(L*L*L); const kb2=6*effE*effI/(L*L); const kb3=4*effE*effI/L; const kb4=2*effE*effI/L;
-        k_local[1][1]=kb1; k_local[1][2]=kb2; k_local[1][4]=-kb1; k_local[1][5]=kb2;
-        k_local[2][1]=kb2; k_local[2][2]=kb3; k_local[2][4]=-kb2; k_local[2][5]=kb4;
-        k_local[4][1]=-kb1;k_local[4][2]=-kb2;k_local[4][4]=kb1;  k_local[4][5]=-kb2;
-        k_local[5][1]=kb2; k_local[5][2]=kb4; k_local[5][4]=-kb2; k_local[5][5]=kb3;
-      }
+      const { effE, effA, effI } = computeEffectiveProperties(el, stiffnessType);
+      const k_local = buildLocalStiffnessMatrix(effE, effA, effI, L, el.releaseStart, el.releaseEnd);
 
       const f_stiff = createVector(6);
       for(let r=0; r<6; r++) for(let col=0; col<6; col++) f_stiff[r] += k_local[r][col] * u_local[col];
@@ -431,53 +413,8 @@ export const solveStructure = (nodes: SolverNode[], elements: SolverElement[], l
       const fem = [0, 0, 0, 0, 0, 0];
 
       elLoads.forEach(l => {
-          let m1 = 0, m2 = 0, v1 = 0, v2 = 0, fx1 = 0, fx2 = 0;
-          const locParam = l.location !== undefined ? l.location : 0.5;
-
-          if (l.type === 'distributed') {
-              const mag = l.magnitude; const dir = l.direction || 'y';
-              let wx = (dir === 'x') ? mag*c : mag*s; 
-              let wy = (dir === 'x') ? mag*-s : mag*c; 
-              m1 = -wy*L*L/12; m2 = wy*L*L/12; v1 = -wy*L/2; v2 = -wy*L/2; fx1 = -wx*L/2; fx2 = -wx*L/2;
-          } else if (l.type === 'point') {
-              const mag = l.magnitude; const dir = l.direction || 'y';
-              const a = locParam * L; const b = L - a;
-              let Px = (dir === 'x') ? mag*c : mag*s; 
-              let Py = (dir === 'x') ? mag*-s : mag*c;
-              m1 = -Py*a*b*b/(L*L); m2 = Py*a*a*b/(L*L); 
-              v1 = -Py*b*b*(3*a+b)/(L*L*L); v2 = -Py*a*a*(a+3*b)/(L*L*L);
-              fx1 = -Px*b/L; fx2 = -Px*a/L;
-          } else if (l.type === 'moment') {
-               const M = l.magnitude; const a = locParam * L; const b = L - a;
-               m1 = M*b*(2*a-b)/(L*L); m2 = -M*a*(2*b-a)/(L*L);
-               v1 = 2*M*a/(L*L); v2 = -2*M*a/(L*L);
-          }
-
-          if (el.releaseStart) {
-              const dm1 = -m1; m1 += dm1; m2 += 0.5*dm1;
-              const dV = 1.5 * dm1 / L; v1 += dV; v2 -= dV;
-          }
-          if (el.releaseEnd) {
-              const dm2 = -m2; m2 += dm2;
-              if (!el.releaseStart) {
-                  m1 += 0.5*dm2; const dV1 = 1.5 * dm2 / L; v1 += dV1; v2 -= dV1;
-              } else {
-                  if (l.type === 'distributed') {
-                      const mag = l.magnitude; const dir = l.direction || 'y';
-                      let wy = (dir === 'x') ? mag*-s : mag*c;
-                      v1 = -wy*L/2; v2 = -wy*L/2;
-                  } else if (l.type === 'point') {
-                      const mag = l.magnitude; const dir = l.direction || 'y';
-                      const a = locParam * L; const b = L - a;
-                      let Py = (dir === 'x') ? mag*-s : mag*c;
-                      v1 = -Py*b/L; v2 = -Py*a/L;
-                  } else if (l.type === 'moment') {
-                      const M = l.magnitude; v1 = -M/L; v2 = M/L;
-                  }
-                  fx1=0; fx2=0; m1=0; m2=0;
-              }
-          }
-          fem[0]+=fx1; fem[1]+=v1; fem[2]+=m1; fem[3]+=fx2; fem[4]+=v2; fem[5]+=m2;
+          const lFem = computeFixedEndForces(l, L, c, s, el.releaseStart, el.releaseEnd);
+          for (let i = 0; i < 6; i++) fem[i] += lFem[i];
       });
 
       const F_total = f_stiff.map((v, i) => v + fem[i]);
@@ -540,6 +477,8 @@ export const solveStructure = (nodes: SolverNode[], elements: SolverElement[], l
   return {
       elements: results,
       maxDeflection: cleanValue(maxDeflection),
-      reactions
+      reactions,
+      displacements,
+      error: solverError
   };
 };

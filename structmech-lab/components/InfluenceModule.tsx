@@ -1,23 +1,9 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { Slider } from './Slider';
 import AITutor from './AITutor';
-
-// 结果卡片
-const ResultCard: React.FC<{ label: string; value: string; unit: string; color?: string }> = ({ label, value, unit, color = 'blue' }) => {
-  const colors: Record<string, string> = {
-    blue: 'bg-gradient-to-br from-blue-50 to-blue-100/50 text-blue-700 border-blue-200',
-    red: 'bg-gradient-to-br from-red-50 to-red-100/50 text-red-700 border-red-200',
-    green: 'bg-gradient-to-br from-green-50 to-green-100/50 text-green-700 border-green-200',
-    purple: 'bg-gradient-to-br from-purple-50 to-purple-100/50 text-purple-700 border-purple-200',
-    orange: 'bg-gradient-to-br from-orange-50 to-orange-100/50 text-orange-700 border-orange-200',
-  };
-  return (
-    <div className={`${colors[color]} rounded-xl p-3 text-center flex-1 border shadow-sm`}>
-      <div className="text-xs text-slate-500 mb-1">{label}</div>
-      <div className="text-lg font-bold">{value} <span className="text-xs font-medium opacity-80">{unit}</span></div>
-    </div>
-  );
-};
+import ResultCard from './ui/ResultCard';
+import SolutionSteps from './ui/SolutionSteps';
+import CollapsiblePanel from './ui/CollapsiblePanel';
 
 // ==================== 静力法作影响线 ====================
 const StaticMethod: React.FC = () => {
@@ -82,6 +68,32 @@ const StaticMethod: React.FC = () => {
   const ilConfig = getILConfig();
   const context = `静力法, L=${L}m, 目标=${targetType}, 当前值=${currentValue.toFixed(3)}`;
 
+  const solveSteps = useMemo(() => {
+    const steps: { title: string; equation?: string; result?: string; explanation?: string }[] = [];
+    steps.push({ title: '放置单位荷载 P=1', equation: `x = ${x.toFixed(2)} m (${loadPos}%L)`, result: '荷载位置确定' });
+    if (targetType === 'RA') {
+      steps.push({ title: 'ΣMB=0 → RA', equation: `RA×L = 1×(L−x) → RA = 1−x/L`, result: `${currentValue.toFixed(4)}`, explanation: '线性递减：A处为1，B处为0' });
+    } else if (targetType === 'RB') {
+      steps.push({ title: 'ΣMA=0 → RB', equation: `RB×L = 1×x → RB = x/L`, result: `${currentValue.toFixed(4)}`, explanation: '线性递增：A处为0，B处为1' });
+    } else if (targetType === 'Mc') {
+      steps.push({ title: '截面C位置', equation: `c = ${c.toFixed(2)} m (${sectionPos}%L)`, result: `c(L−c)/L = ${maxValue.toFixed(4)} m` });
+      if (x <= c) {
+        steps.push({ title: 'x ≤ c: 荷载在C左侧', equation: `Mc = x(L−c)/L = ${x.toFixed(2)}×${(L-c).toFixed(2)}/${L}`, result: `${currentValue.toFixed(4)} m` });
+      } else {
+        steps.push({ title: 'x > c: 荷载在C右侧', equation: `Mc = c(L−x)/L = ${c.toFixed(2)}×${(L-x).toFixed(2)}/${L}`, result: `${currentValue.toFixed(4)} m` });
+      }
+    } else {
+      steps.push({ title: '截面C位置', equation: `c = ${c.toFixed(2)} m`, result: `在C处有突变` });
+      if (x < c) {
+        steps.push({ title: 'x < c: 荷载在C左侧', equation: `Qc = −x/L`, result: `${currentValue.toFixed(4)}`, explanation: '负值区' });
+      } else {
+        steps.push({ title: 'x ≥ c: 荷载在C右侧', equation: `Qc = (L−x)/L`, result: `${currentValue.toFixed(4)}`, explanation: '正值区' });
+      }
+    }
+    steps.push({ title: '影响线最大纵标', result: `${maxValue.toFixed(4)} ${ilConfig.unit}` });
+    return steps;
+  }, [targetType, L, x, c, loadPos, sectionPos, currentValue, maxValue, ilConfig.unit]);
+
   const BeamBase = () => (
     <>
       <line x1="30" y1="40" x2="270" y2="40" stroke="#334155" strokeWidth="4" />
@@ -137,101 +149,83 @@ const StaticMethod: React.FC = () => {
   };
 
   return (
-    <div className="flex gap-5 h-full p-5">
-      <div className="flex-1 flex flex-col gap-4 min-w-0">
-        <div className="flex gap-4">
-          <div className="bg-white rounded-2xl border border-slate-200 p-5 w-80 flex-shrink-0 shadow-sm">
-            <h4 className="text-sm font-bold text-slate-800 mb-4">🔧 参数设置</h4>
-            <Slider label="梁跨度 L" value={L} min={6} max={20} unit="m" onChange={setL} />
-            <Slider label="单位荷载位置 x" value={loadPos} min={0} max={100} unit="%" onChange={setLoadPos} />
-            <div className="mt-4 mb-3">
-              <label className="text-sm font-semibold text-slate-700 mb-2 block">目标量值</label>
-              <div className="grid grid-cols-2 gap-2">
-                {[
-                  { id: 'RA' as const, name: 'RA (左反力)' },
-                  { id: 'RB' as const, name: 'RB (右反力)' },
-                  { id: 'Mc' as const, name: 'Mc (弯矩)' },
-                  { id: 'Qc' as const, name: 'Qc (剪力)' },
-                ].map(t => (
-                  <button key={t.id} onClick={() => setTargetType(t.id)}
-                    className={`py-2 px-3 text-xs font-medium rounded-lg transition-all ${targetType === t.id ? 'bg-blue-600 text-white shadow-md' : 'bg-slate-100 hover:bg-slate-200'}`}>
-                    {t.name}
-                  </button>
-                ))}
-              </div>
+    <div className="flex flex-col lg:flex-row gap-3 lg:gap-4 min-h-full p-3 lg:p-4">
+      <CollapsiblePanel title="参数" icon="🔧" side="left" storageKey="param-panel-il-static">
+        <div className="bg-white rounded-xl border border-slate-200/80 p-3 shadow-sm overflow-y-auto">
+          <h4 className="text-xs font-semibold text-slate-600 mb-2">🔧 参数设置</h4>
+          <Slider label="梁跨度 L" value={L} min={6} max={20} unit="m" onChange={setL} />
+          <Slider label="单位荷载位置 x" value={loadPos} min={0} max={100} unit="%" onChange={setLoadPos} />
+          <div className="mt-4 mb-3">
+            <label className="text-sm font-semibold text-slate-700 mb-2 block">目标量值</label>
+            <div className="grid grid-cols-2 gap-2">
+              {[
+                { id: 'RA' as const, name: 'RA (左反力)' },
+                { id: 'RB' as const, name: 'RB (右反力)' },
+                { id: 'Mc' as const, name: 'Mc (弯矩)' },
+                { id: 'Qc' as const, name: 'Qc (剪力)' },
+              ].map(t => (
+                <button key={t.id} onClick={() => setTargetType(t.id)}
+                  className={`py-2 px-3 text-xs font-medium rounded-lg transition-all ${targetType === t.id ? 'bg-blue-600 text-white shadow-md' : 'bg-slate-100 hover:bg-slate-200'}`}>
+                  {t.name}
+                </button>
+              ))}
             </div>
-            {(targetType === 'Mc' || targetType === 'Qc') && (
-              <Slider label="截面C位置" value={sectionPos} min={10} max={90} unit="%" onChange={setSectionPos} />
-            )}
           </div>
-          
-          <div className="bg-white rounded-2xl border border-slate-200 p-4 flex-1 shadow-sm flex flex-col">
-            <h4 className="text-sm font-bold text-slate-800 mb-2">📐 结构示意 (单位移动荷载 P=1)</h4>
-            <div className="flex-1 flex items-center justify-center">
-              <svg width="100%" viewBox="0 0 300 80" className="bg-gradient-to-b from-slate-50 to-white rounded-xl max-w-lg">
-                <BeamBase />
-                {(() => {
-                  const px = 30 + (loadPos / 100) * 240;
-                  return (
-                    <>
-                      <line x1={px} y1="10" x2={px} y2="35" stroke="#ef4444" strokeWidth="2" />
-                      <polygon points={`${px-4},32 ${px+4},32 ${px},40`} fill="#ef4444" />
-                      <text x={px} y="8" className="text-[10px] fill-red-600 font-bold" textAnchor="middle">P=1</text>
-                    </>
-                  );
-                })()}
-                {(targetType === 'Mc' || targetType === 'Qc') && (
+          {(targetType === 'Mc' || targetType === 'Qc') && (
+            <Slider label="截面C位置" value={sectionPos} min={10} max={90} unit="%" onChange={setSectionPos} />
+          )}
+        </div>
+      </CollapsiblePanel>
+      <div className="flex-1 flex flex-col gap-2 lg:gap-3 min-w-0">
+        <div className="bg-white rounded-xl border border-slate-200/80 p-4 shadow-sm flex flex-col">
+          <h4 className="text-xs font-semibold text-slate-600 mb-2">📐 结构示意 (P=1)</h4>
+          <div className="flex-1 flex items-center justify-center">
+            <svg width="100%" viewBox="0 0 300 80" className="bg-gradient-to-b from-slate-50 to-white rounded-xl">
+              <BeamBase />
+              {(() => {
+                const px = 30 + (loadPos / 100) * 240;
+                return (
                   <>
-                    <line x1={30 + (sectionPos / 100) * 240} y1="35" x2={30 + (sectionPos / 100) * 240} y2="55" stroke="#f97316" strokeWidth="2" strokeDasharray="3" />
-                    <text x={30 + (sectionPos / 100) * 240} y="65" className="text-[10px] fill-orange-600 font-bold" textAnchor="middle">C</text>
+                    <line x1={px} y1="10" x2={px} y2="35" stroke="#ef4444" strokeWidth="2" />
+                    <polygon points={`${px-4},32 ${px+4},32 ${px},40`} fill="#ef4444" />
+                    <text x={px} y="8" className="text-[10px] fill-red-600 font-bold" textAnchor="middle">P=1</text>
                   </>
-                )}
-              </svg>
-            </div>
+                );
+              })()}
+              {(targetType === 'Mc' || targetType === 'Qc') && (
+                <>
+                  <line x1={30 + (sectionPos / 100) * 240} y1="35" x2={30 + (sectionPos / 100) * 240} y2="55" stroke="#f97316" strokeWidth="2" strokeDasharray="3" />
+                  <text x={30 + (sectionPos / 100) * 240} y="65" className="text-[10px] fill-orange-600 font-bold" textAnchor="middle">C</text>
+                </>
+              )}
+            </svg>
           </div>
         </div>
 
-        <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm flex flex-col">
-          <h4 className="text-sm font-bold text-slate-800 mb-3">{ilConfig.title}</h4>
+        <div className="bg-white rounded-xl border border-slate-200/80 p-4 shadow-sm flex flex-col">
+          <h4 className="text-xs font-semibold text-slate-600 mb-2">{ilConfig.title}</h4>
           <div className="flex-1 flex items-center justify-center">{renderInfluenceLine()}</div>
         </div>
 
-        <div className="flex flex-col gap-4">
-          <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
-            <h4 className="text-sm font-bold text-slate-800 mb-3">Σ 计算结果</h4>
-            <div className="flex gap-3">
-              <ResultCard label="荷载位置 x" value={x.toFixed(2)} unit="m" color="purple" />
-              <ResultCard label={targetType} value={currentValue.toFixed(4)} unit={ilConfig.unit} color="blue" />
-              <ResultCard label="最大纵标" value={maxValue.toFixed(4)} unit={ilConfig.unit} color="red" />
-              {(targetType === 'Mc' || targetType === 'Qc') && (
-                <ResultCard label="截面C位置" value={c.toFixed(2)} unit="m" color="orange" />
-              )}
-            </div>
+        <div className="bg-white rounded-xl border border-slate-200/80 p-4 shadow-sm">
+          <h4 className="text-xs font-semibold text-slate-600 mb-2">Σ 计算结果</h4>
+          <div className="flex flex-wrap gap-2 md:gap-3">
+            <ResultCard label="荷载位置 x" value={x.toFixed(2)} unit="m" color="purple" />
+            <ResultCard label={targetType} value={currentValue.toFixed(4)} unit={ilConfig.unit} color="blue" />
+            <ResultCard label="最大纵标" value={maxValue.toFixed(4)} unit={ilConfig.unit} color="red" />
+            {(targetType === 'Mc' || targetType === 'Qc') && (
+              <ResultCard label="截面C位置" value={c.toFixed(2)} unit="m" color="orange" />
+            )}
           </div>
-          <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
-            <h4 className="text-sm font-bold text-slate-800 mb-3">📖 静力法原理</h4>
-            <div className="flex gap-4">
-              <div className="flex-1 bg-gradient-to-br from-slate-50 to-white rounded-xl p-4 border border-slate-100">
-                <div className="text-xs text-slate-500 mb-2">公式</div>
-                <div className="text-sm font-mono text-slate-700 whitespace-pre-line">{ilConfig.formula}</div>
-              </div>
-              <div className="flex-1 bg-gradient-to-br from-blue-50 to-white rounded-xl p-4 border border-blue-100">
-                <div className="text-xs text-slate-500 mb-2">方法</div>
-                <div className="text-sm text-slate-700">将单位荷载P=1放在任意位置x，用平衡方程求目标量值</div>
-              </div>
-              <div className="flex-1 bg-gradient-to-br from-green-50 to-white rounded-xl p-4 border border-green-100">
-                <div className="text-xs text-slate-500 mb-2">特点</div>
-                <div className="text-sm text-slate-700">{ilConfig.desc}</div>
-              </div>
-            </div>
-          </div>
+          <div className="mt-3 pt-3 border-t border-slate-100 text-sm font-mono text-slate-700 whitespace-pre-line">{ilConfig.formula}</div>
         </div>
+        <SolutionSteps steps={solveSteps} title="求解过程" />
       </div>
 
-      <div className="w-80 flex-shrink-0">
+      <CollapsiblePanel title="AI助手" icon="🤖" side="right" storageKey="ai-panel-il-static">
         <AITutor context={context} moduleTitle="静力法作影响线"
           suggestedQuestions={['静力法的基本步骤？', '影响线和内力图有什么区别？', '为什么剪力影响线有突变？']} />
-      </div>
+      </CollapsiblePanel>
     </div>
   );
 };
@@ -277,6 +271,24 @@ const KinematicMethod: React.FC = () => {
   
   const ilConfig = getILConfig();
   const context = `机动法, L=${L}m, 目标=${targetType}`;
+
+  const solveSteps = useMemo(() => {
+    const steps: { title: string; equation?: string; result?: string; explanation?: string }[] = [];
+    steps.push({ title: '① 去掉约束', result: ilConfig.principle });
+    steps.push({ title: '② 施加单位位移', equation: 'δ = 1', result: '沿约束方向给单位广义位移' });
+    if (targetType === 'RA') {
+      steps.push({ title: '③ 画位移图', equation: '梁绕B转动，A点位移=1', result: '线性递减三角形', explanation: '任意点x处位移 y = 1−x/L' });
+    } else if (targetType === 'RB') {
+      steps.push({ title: '③ 画位移图', equation: '梁绕A转动，B点位移=1', result: '线性递增三角形', explanation: '任意点x处位移 y = x/L' });
+    } else if (targetType === 'Mc') {
+      const maxMc = c * (L - c) / L;
+      steps.push({ title: '③ 画位移图', equation: 'C处加铰，相对转角θ=1', result: `折线形，峰值=${maxMc.toFixed(3)} m`, explanation: `在C处(${c.toFixed(1)}m)有尖角` });
+    } else {
+      steps.push({ title: '③ 画位移图', equation: 'C处切开，相对位移δ=1', result: '两侧平行线段，C处突变', explanation: `左侧: −c/L = ${(-c/L).toFixed(3)}, 右侧: (L−c)/L = ${((L-c)/L).toFixed(3)}` });
+    }
+    steps.push({ title: '④ 位移图即影响线', result: '虚功原理：P·y = Z·δ → y = IL纵标', explanation: '无需列方程，直接由几何关系得到' });
+    return steps;
+  }, [targetType, L, c, ilConfig.principle]);
 
   // 绘制机动法位移图
   const renderDisplacementDiagram = () => {
@@ -361,94 +373,62 @@ const KinematicMethod: React.FC = () => {
   };
 
   return (
-    <div className="flex gap-5 h-full p-5">
-      <div className="flex-1 flex flex-col gap-4 min-w-0">
-        <div className="flex gap-4">
-          <div className="bg-white rounded-2xl border border-slate-200 p-5 w-80 flex-shrink-0 shadow-sm">
-            <h4 className="text-sm font-bold text-slate-800 mb-4">🔧 参数设置</h4>
-            <Slider label="梁跨度 L" value={L} min={6} max={20} unit="m" onChange={setL} />
-            <div className="mt-4 mb-3">
-              <label className="text-sm font-semibold text-slate-700 mb-2 block">目标量值</label>
-              <div className="grid grid-cols-2 gap-2">
-                {[
-                  { id: 'RA' as const, name: 'RA (左反力)' },
-                  { id: 'RB' as const, name: 'RB (右反力)' },
-                  { id: 'Mc' as const, name: 'Mc (弯矩)' },
-                  { id: 'Qc' as const, name: 'Qc (剪力)' },
-                ].map(t => (
-                  <button key={t.id} onClick={() => setTargetType(t.id)}
-                    className={`py-2 px-3 text-xs font-medium rounded-lg transition-all ${targetType === t.id ? 'bg-blue-600 text-white shadow-md' : 'bg-slate-100 hover:bg-slate-200'}`}>
-                    {t.name}
-                  </button>
-                ))}
-              </div>
-            </div>
-            {(targetType === 'Mc' || targetType === 'Qc') && (
-              <Slider label="截面C位置" value={sectionPos} min={10} max={90} unit="%" onChange={setSectionPos} />
-            )}
-            <div className="mt-4 pt-4 border-t border-slate-100">
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input type="checkbox" checked={showDisplacement} onChange={(e) => setShowDisplacement(e.target.checked)} 
-                  className="w-4 h-4 rounded border-slate-300" />
-                <span className="text-sm text-slate-700">显示位移图</span>
-              </label>
+    <div className="flex flex-col lg:flex-row gap-3 lg:gap-4 min-h-full p-3 lg:p-4">
+      <CollapsiblePanel title="参数" icon="🔧" side="left" storageKey="param-panel-il-kinematic">
+        <div className="bg-white rounded-xl border border-slate-200/80 p-3 shadow-sm overflow-y-auto">
+          <h4 className="text-xs font-semibold text-slate-600 mb-2">🔧 参数设置</h4>
+          <Slider label="梁跨度 L" value={L} min={6} max={20} unit="m" onChange={setL} />
+          <div className="mt-3 mb-2">
+            <label className="text-xs font-semibold text-slate-600 mb-2 block">目标量值</label>
+            <div className="grid grid-cols-2 gap-2">
+              {[
+                { id: 'RA' as const, name: 'RA (左反力)' },
+                { id: 'RB' as const, name: 'RB (右反力)' },
+                { id: 'Mc' as const, name: 'Mc (弯矩)' },
+                { id: 'Qc' as const, name: 'Qc (剪力)' },
+              ].map(t => (
+                <button key={t.id} onClick={() => setTargetType(t.id)}
+                  className={`py-2 px-3 text-xs font-medium rounded-lg transition-all ${targetType === t.id ? 'bg-blue-600 text-white shadow-md' : 'bg-slate-100 hover:bg-slate-200'}`}>
+                  {t.name}
+                </button>
+              ))}
             </div>
           </div>
-          
-          <div className="bg-white rounded-2xl border border-slate-200 p-4 flex-1 shadow-sm flex flex-col">
-            <h4 className="text-sm font-bold text-slate-800 mb-2">📐 机动法原理图</h4>
-            <div className="flex-1 flex items-center justify-center">{renderDisplacementDiagram()}</div>
-            <div className="text-center text-sm text-slate-600 mt-2">{ilConfig.displacement}</div>
+          {(targetType === 'Mc' || targetType === 'Qc') && (
+            <Slider label="截面C位置" value={sectionPos} min={10} max={90} unit="%" onChange={setSectionPos} />
+          )}
+          <div className="mt-4 pt-4 border-t border-slate-100">
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input type="checkbox" checked={showDisplacement} onChange={(e) => setShowDisplacement(e.target.checked)} 
+                className="w-4 h-4 rounded border-slate-300" />
+              <span className="text-sm text-slate-700">显示位移图</span>
+            </label>
           </div>
+        </div>
+      </CollapsiblePanel>
+      <div className="flex-1 flex flex-col gap-2 lg:gap-3 min-w-0">
+        <div className="bg-white rounded-xl border border-slate-200/80 p-4 shadow-sm flex flex-col">
+          <h4 className="text-xs font-semibold text-slate-600 mb-2">📐 机动法原理图</h4>
+          <div className="flex-1 flex items-center justify-center">{renderDisplacementDiagram()}</div>
+          <div className="text-center text-sm text-slate-600 mt-2">{ilConfig.displacement}</div>
         </div>
 
-        <div className="flex flex-col gap-4">
-          <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
-            <h4 className="text-sm font-bold text-slate-800 mb-3">📖 机动法（虚功原理）</h4>
-            <div className="flex gap-4">
-              <div className="flex-1 bg-gradient-to-br from-blue-50 to-white rounded-xl p-4 border border-blue-100">
-                <div className="text-xs text-slate-500 mb-2">基本原理</div>
-                <div className="text-sm text-slate-700">{ilConfig.principle}</div>
-              </div>
-              <div className="flex-1 bg-gradient-to-br from-green-50 to-white rounded-xl p-4 border border-green-100">
-                <div className="text-xs text-slate-500 mb-2">虚功方程</div>
-                <div className="text-sm font-mono text-slate-700">P·y = Z·δ</div>
-                <div className="text-xs text-slate-500 mt-1">y为影响线纵标</div>
-              </div>
-              <div className="flex-1 bg-gradient-to-br from-purple-50 to-white rounded-xl p-4 border border-purple-100">
-                <div className="text-xs text-slate-500 mb-2">优点</div>
-                <div className="text-sm text-slate-700">无需计算，直接由位移图得到影响线形状</div>
-              </div>
+        <div className="bg-white rounded-xl border border-slate-200/80 p-4 shadow-sm">
+          <h4 className="text-xs font-semibold text-slate-600 mb-2">📖 虚功原理</h4>
+          <div className="flex items-center gap-4">
+            <div className="bg-gradient-to-br from-green-50 to-white rounded-xl px-4 py-2 border border-green-100 text-center">
+              <div className="text-lg font-mono text-slate-800 font-bold">P·y = Z·δ</div>
             </div>
-          </div>
-          <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
-            <h4 className="text-sm font-bold text-slate-800 mb-3">🔑 机动法步骤</h4>
-            <div className="grid grid-cols-4 gap-3">
-              <div className="bg-slate-50 rounded-xl p-3 text-center">
-                <div className="text-2xl mb-1">①</div>
-                <div className="text-xs text-slate-600">去掉目标量值对应的约束</div>
-              </div>
-              <div className="bg-slate-50 rounded-xl p-3 text-center">
-                <div className="text-2xl mb-1">②</div>
-                <div className="text-xs text-slate-600">沿约束方向给单位位移</div>
-              </div>
-              <div className="bg-slate-50 rounded-xl p-3 text-center">
-                <div className="text-2xl mb-1">③</div>
-                <div className="text-xs text-slate-600">画出位移图</div>
-              </div>
-              <div className="bg-slate-50 rounded-xl p-3 text-center">
-                <div className="text-2xl mb-1">④</div>
-                <div className="text-xs text-slate-600">位移图即为影响线</div>
-              </div>
-            </div>
+            <div className="text-sm text-slate-600 flex-1">{ilConfig.displacement}</div>
           </div>
         </div>
+        <SolutionSteps steps={solveSteps} title="机动法求解过程" />
       </div>
 
-      <div className="w-80 flex-shrink-0">
+      <CollapsiblePanel title="AI助手" icon="🤖" side="right" storageKey="ai-panel-il-kinematic">
         <AITutor context={context} moduleTitle="机动法作影响线"
           suggestedQuestions={['机动法的原理是什么？', '为什么位移图就是影响线？', '机动法和静力法哪个更方便？']} />
-      </div>
+      </CollapsiblePanel>
     </div>
   );
 };
@@ -510,6 +490,15 @@ const EnvelopeDiagram: React.FC = () => {
   
   const context = `内力包络图, L=${L}m, ${numLoads}个荷载, 间距${loadSpacing}m, P=${loadMagnitude}kN`;
 
+  const maxPoint = envelopeData.reduce((max, d) => d.maxM > max.maxM ? d : max, envelopeData[0]);
+
+  const solveSteps = useMemo(() => [
+    { title: '定义荷载组', equation: `${numLoads}个集中力 P=${loadMagnitude}kN`, result: `荷载组总长 = ${((numLoads - 1) * loadSpacing).toFixed(1)} m`, explanation: `间距 ${loadSpacing} m` },
+    { title: '遍历所有截面', equation: `x ∈ [0, L], L=${L}m`, result: `共 ${envelopeData.length} 个截面`, explanation: '对每个截面求最大/最小弯矩' },
+    { title: '荷载组移动求极值', equation: '荷载组从左到右扫过全梁', result: '每个位置叠加各荷载贡献', explanation: 'M = ΣPᵢ·yᵢ (影响线法)' },
+    { title: '绝对最大弯矩', equation: `位于 x = ${(maxPoint.x * L).toFixed(2)} m`, result: `Mmax = ${maxMoment.toFixed(0)} kN·m`, explanation: '包络图最高点，最危险截面' },
+  ], [numLoads, loadMagnitude, loadSpacing, L, envelopeData.length, maxPoint, maxMoment]);
+
   const renderEnvelope = () => {
     const width = 400, height = 180;
     const margin = { left: 50, right: 30, top: 30, bottom: 40 };
@@ -526,8 +515,6 @@ const EnvelopeDiagram: React.FC = () => {
     });
     maxPath += ` L ${margin.left + plotW} ${baseY}`;
     
-    // 找最大弯矩位置
-    const maxPoint = envelopeData.reduce((max, d) => d.maxM > max.maxM ? d : max, envelopeData[0]);
     const maxPx = margin.left + maxPoint.x * plotW;
     const maxPy = baseY + maxPoint.maxM * scale;
     
@@ -571,64 +558,45 @@ const EnvelopeDiagram: React.FC = () => {
   };
 
   return (
-    <div className="flex gap-5 h-full p-5">
-      <div className="flex-1 flex flex-col gap-4 min-w-0">
-        <div className="flex gap-4">
-          <div className="bg-white rounded-2xl border border-slate-200 p-5 w-80 flex-shrink-0 shadow-sm">
-            <h4 className="text-sm font-bold text-slate-800 mb-4">🔧 参数设置</h4>
-            <Slider label="梁跨度 L" value={L} min={8} max={30} unit="m" onChange={setL} />
-            <Slider label="荷载个数" value={numLoads} min={2} max={6} step={1} unit="个" onChange={setNumLoads} />
-            <Slider label="荷载间距" value={loadSpacing} min={1} max={5} step={0.5} unit="m" onChange={setLoadSpacing} />
-            <Slider label="荷载大小 P" value={loadMagnitude} min={50} max={200} unit="kN" onChange={setLoadMagnitude} />
-            <div className="mt-4 pt-4 border-t border-slate-100">
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input type="checkbox" checked={showEnvelope} onChange={(e) => setShowEnvelope(e.target.checked)} 
-                  className="w-4 h-4 rounded border-slate-300" />
-                <span className="text-sm text-slate-700">显示包络图</span>
-              </label>
-            </div>
+    <div className="flex flex-col lg:flex-row gap-3 lg:gap-4 min-h-full p-3 lg:p-4">
+      <CollapsiblePanel title="参数" icon="🔧" side="left" storageKey="param-panel-il-envelope">
+        <div className="bg-white rounded-xl border border-slate-200/80 p-3 shadow-sm overflow-y-auto">
+          <h4 className="text-xs font-semibold text-slate-600 mb-2">🔧 参数设置</h4>
+          <Slider label="梁跨度 L" value={L} min={8} max={30} unit="m" onChange={setL} />
+          <Slider label="荷载个数" value={numLoads} min={2} max={6} step={1} unit="个" onChange={setNumLoads} />
+          <Slider label="荷载间距" value={loadSpacing} min={1} max={5} step={0.5} unit="m" onChange={setLoadSpacing} />
+          <Slider label="荷载大小 P" value={loadMagnitude} min={50} max={200} unit="kN" onChange={setLoadMagnitude} />
+          <div className="mt-4 pt-4 border-t border-slate-100">
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input type="checkbox" checked={showEnvelope} onChange={(e) => setShowEnvelope(e.target.checked)} 
+                className="w-4 h-4 rounded border-slate-300" />
+              <span className="text-sm text-slate-700">显示包络图</span>
+            </label>
           </div>
-          
-          <div className="bg-white rounded-2xl border border-slate-200 p-4 flex-1 shadow-sm flex flex-col">
-            <h4 className="text-sm font-bold text-slate-800 mb-2">📐 弯矩包络图</h4>
-            <div className="flex-1 flex items-center justify-center">{renderEnvelope()}</div>
-          </div>
+        </div>
+      </CollapsiblePanel>
+      <div className="flex-1 flex flex-col gap-2 lg:gap-3 min-w-0">
+        <div className="bg-white rounded-xl border border-slate-200/80 p-4 shadow-sm flex flex-col">
+          <h4 className="text-xs font-semibold text-slate-600 mb-2">📐 弯矩包络图</h4>
+          <div className="flex-1 flex items-center justify-center">{renderEnvelope()}</div>
         </div>
 
-        <div className="flex flex-col gap-4">
-          <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
-            <h4 className="text-sm font-bold text-slate-800 mb-3">Σ 计算结果</h4>
-            <div className="flex gap-3">
-              <ResultCard label="最大弯矩" value={maxMoment.toFixed(0)} unit="kN·m" color="red" />
-              <ResultCard label="荷载总数" value={numLoads.toString()} unit="个" color="blue" />
-              <ResultCard label="荷载组长度" value={((numLoads - 1) * loadSpacing).toFixed(1)} unit="m" color="green" />
-              <ResultCard label="单个荷载" value={loadMagnitude.toString()} unit="kN" color="purple" />
-            </div>
-          </div>
-          <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
-            <h4 className="text-sm font-bold text-slate-800 mb-3">📖 内力包络图</h4>
-            <div className="flex gap-4">
-              <div className="flex-1 bg-gradient-to-br from-red-50 to-white rounded-xl p-4 border border-red-100">
-                <div className="text-xs text-slate-500 mb-2">定义</div>
-                <div className="text-sm text-slate-700">移动荷载作用下，各截面可能出现的最大（最小）内力值的连线</div>
-              </div>
-              <div className="flex-1 bg-gradient-to-br from-blue-50 to-white rounded-xl p-4 border border-blue-100">
-                <div className="text-xs text-slate-500 mb-2">作用</div>
-                <div className="text-sm text-slate-700">用于结构设计，确定各截面的设计内力</div>
-              </div>
-              <div className="flex-1 bg-gradient-to-br from-green-50 to-white rounded-xl p-4 border border-green-100">
-                <div className="text-xs text-slate-500 mb-2">绝对最大弯矩</div>
-                <div className="text-sm text-slate-700">包络图的最大值点，是整个梁的最危险截面</div>
-              </div>
-            </div>
+        <div className="bg-white rounded-xl border border-slate-200/80 p-4 shadow-sm">
+          <h4 className="text-xs font-semibold text-slate-600 mb-2">Σ 计算结果</h4>
+          <div className="flex flex-wrap gap-2 md:gap-3">
+            <ResultCard label="最大弯矩" value={maxMoment.toFixed(0)} unit="kN·m" color="red" />
+            <ResultCard label="荷载总数" value={numLoads.toString()} unit="个" color="blue" />
+            <ResultCard label="荷载组长度" value={((numLoads - 1) * loadSpacing).toFixed(1)} unit="m" color="green" />
+            <ResultCard label="单个荷载" value={loadMagnitude.toString()} unit="kN" color="purple" />
           </div>
         </div>
+        <SolutionSteps steps={solveSteps} title="求解过程" />
       </div>
 
-      <div className="w-80 flex-shrink-0">
+      <CollapsiblePanel title="AI助手" icon="🤖" side="right" storageKey="ai-panel-il-envelope">
         <AITutor context={context} moduleTitle="内力包络图"
           suggestedQuestions={['什么是内力包络图？', '如何确定绝对最大弯矩？', '包络图和影响线有什么关系？']} />
-      </div>
+      </CollapsiblePanel>
     </div>
   );
 };
@@ -671,6 +639,26 @@ const InfluenceApplication: React.FC = () => {
   const maxIL = c * (L - c) / L;
   
   const context = `影响线应用, L=${L}m, 截面C=${sectionPos}%, Mc=${Mc.toFixed(1)}kN·m`;
+
+  const solveSteps = useMemo(() => {
+    const steps: { title: string; equation?: string; result?: string; explanation?: string }[] = [];
+    steps.push({ title: '确定影响线', equation: `Mc影响线，C在 ${c.toFixed(2)}m`, result: `最大纵标 = ${maxIL.toFixed(4)} m` });
+    if (loadType === 'point') {
+      const y = getMcIL(x);
+      steps.push({ title: '集中力 P 作用', equation: `Mc = P × y = ${P} × ${y.toFixed(4)}`, result: `${Mc.toFixed(2)} kN·m`, explanation: `y为x=${x.toFixed(2)}m处的影响线纵标` });
+    } else if (loadType === 'distributed') {
+      const area = c * (L - c) / 2;
+      steps.push({ title: '均布荷载 q 作用', equation: `Mc = q × A = ${q} × ${area.toFixed(3)}`, result: `${Mc.toFixed(2)} kN·m`, explanation: `A = 影响线下三角形面积 = ${area.toFixed(3)} m²` });
+    } else {
+      const loads = [{ pos: 0.2 * L, P: 30 }, { pos: 0.5 * L, P: 50 }, { pos: 0.8 * L, P: 40 }];
+      loads.forEach((ld, i) => {
+        const y = getMcIL(ld.pos);
+        steps.push({ title: `P${i+1}=${ld.P}kN @ ${ld.pos.toFixed(1)}m`, equation: `Mc${i+1} = ${ld.P} × ${y.toFixed(4)}`, result: `${(ld.P * y).toFixed(2)} kN·m` });
+      });
+      steps.push({ title: '叠加', equation: 'Mc = ΣPᵢ × yᵢ', result: `${Mc.toFixed(2)} kN·m` });
+    }
+    return steps;
+  }, [loadType, L, c, x, P, q, Mc, maxIL, getMcIL]);
 
   const renderApplication = () => {
     const width = 380, height = 160;
@@ -748,81 +736,64 @@ const InfluenceApplication: React.FC = () => {
   };
 
   return (
-    <div className="flex gap-5 h-full p-5">
-      <div className="flex-1 flex flex-col gap-4 min-w-0">
-        <div className="flex gap-4">
-          <div className="bg-white rounded-2xl border border-slate-200 p-5 w-80 flex-shrink-0 shadow-sm">
-            <h4 className="text-sm font-bold text-slate-800 mb-4">🔧 参数设置</h4>
-            <Slider label="梁跨度 L" value={L} min={6} max={20} unit="m" onChange={setL} />
-            <Slider label="截面C位置" value={sectionPos} min={20} max={80} unit="%" onChange={setSectionPos} />
-            <div className="mt-4 mb-3">
-              <label className="text-sm font-semibold text-slate-700 mb-2 block">荷载类型</label>
-              <div className="grid grid-cols-3 gap-2">
-                {[
-                  { id: 'point' as const, name: '集中力' },
-                  { id: 'distributed' as const, name: '均布荷载' },
-                  { id: 'multi' as const, name: '多个集中力' },
-                ].map(t => (
-                  <button key={t.id} onClick={() => setLoadType(t.id)}
-                    className={`py-2 px-2 text-xs font-medium rounded-lg transition-all ${loadType === t.id ? 'bg-blue-600 text-white shadow-md' : 'bg-slate-100 hover:bg-slate-200'}`}>
-                    {t.name}
-                  </button>
-                ))}
-              </div>
+    <div className="flex flex-col lg:flex-row gap-3 lg:gap-4 min-h-full p-3 lg:p-4">
+      <CollapsiblePanel title="参数" icon="🔧" side="left" storageKey="param-panel-il-application">
+        <div className="bg-white rounded-xl border border-slate-200/80 p-3 shadow-sm overflow-y-auto">
+          <h4 className="text-xs font-semibold text-slate-600 mb-2">🔧 参数设置</h4>
+          <Slider label="梁跨度 L" value={L} min={6} max={20} unit="m" onChange={setL} />
+          <Slider label="截面C位置" value={sectionPos} min={20} max={80} unit="%" onChange={setSectionPos} />
+          <div className="mt-4 mb-3">
+            <label className="text-sm font-semibold text-slate-700 mb-2 block">荷载类型</label>
+            <div className="grid grid-cols-3 gap-2">
+              {[
+                { id: 'point' as const, name: '集中力' },
+                { id: 'distributed' as const, name: '均布荷载' },
+                { id: 'multi' as const, name: '多个集中力' },
+              ].map(t => (
+                <button key={t.id} onClick={() => setLoadType(t.id)}
+                  className={`py-2 px-2 text-xs font-medium rounded-lg transition-all ${loadType === t.id ? 'bg-blue-600 text-white shadow-md' : 'bg-slate-100 hover:bg-slate-200'}`}>
+                  {t.name}
+                </button>
+              ))}
             </div>
-            {loadType === 'point' && (
-              <>
-                <Slider label="集中力 P" value={P} min={20} max={100} unit="kN" onChange={setP} />
-                <Slider label="荷载位置" value={loadPos} min={0} max={100} unit="%" onChange={setLoadPos} />
-              </>
-            )}
-            {loadType === 'distributed' && (
-              <Slider label="均布荷载 q" value={q} min={10} max={50} unit="kN/m" onChange={setQ} />
-            )}
           </div>
-          
-          <div className="bg-white rounded-2xl border border-slate-200 p-4 flex-1 shadow-sm flex flex-col">
-            <h4 className="text-sm font-bold text-slate-800 mb-2">📐 利用影响线计算内力</h4>
-            <div className="flex-1 flex items-center justify-center">{renderApplication()}</div>
-          </div>
+          {loadType === 'point' && (
+            <>
+              <Slider label="集中力 P" value={P} min={20} max={100} unit="kN" onChange={setP} />
+              <Slider label="荷载位置" value={loadPos} min={0} max={100} unit="%" onChange={setLoadPos} />
+            </>
+          )}
+          {loadType === 'distributed' && (
+            <Slider label="均布荷载 q" value={q} min={10} max={50} unit="kN/m" onChange={setQ} />
+          )}
+        </div>
+      </CollapsiblePanel>
+      <div className="flex-1 flex flex-col gap-2 lg:gap-3 min-w-0">
+        <div className="bg-white rounded-xl border border-slate-200/80 p-4 shadow-sm flex flex-col">
+          <h4 className="text-xs font-semibold text-slate-600 mb-2">📐 利用影响线计算内力</h4>
+          <div className="flex-1 flex items-center justify-center">{renderApplication()}</div>
         </div>
 
-        <div className="flex flex-col gap-4">
-          <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
-            <h4 className="text-sm font-bold text-slate-800 mb-3">Σ 计算结果</h4>
-            <div className="flex gap-3">
-              <ResultCard label="截面C弯矩 Mc" value={Mc.toFixed(1)} unit="kN·m" color="red" />
-              <ResultCard label="影响线最大纵标" value={maxIL.toFixed(3)} unit="m" color="blue" />
-              <ResultCard label="截面C位置" value={c.toFixed(2)} unit="m" color="orange" />
-            </div>
+        <div className="bg-white rounded-xl border border-slate-200/80 p-4 shadow-sm">
+          <h4 className="text-xs font-semibold text-slate-600 mb-2">Σ 计算结果</h4>
+          <div className="flex flex-wrap gap-2 md:gap-3">
+            <ResultCard label="截面C弯矩 Mc" value={Mc.toFixed(1)} unit="kN·m" color="red" />
+            <ResultCard label="影响线最大纵标" value={maxIL.toFixed(3)} unit="m" color="blue" />
+            <ResultCard label="截面C位置" value={c.toFixed(2)} unit="m" color="orange" />
           </div>
-          <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
-            <h4 className="text-sm font-bold text-slate-800 mb-3">📖 影响线应用公式</h4>
-            <div className="flex gap-4">
-              <div className="flex-1 bg-gradient-to-br from-red-50 to-white rounded-xl p-4 border border-red-100">
-                <div className="text-xs text-slate-500 mb-2">集中力</div>
-                <div className="text-sm font-mono text-slate-700">Z = P × y</div>
-                <div className="text-xs text-slate-500 mt-1">y为荷载位置的影响线纵标</div>
-              </div>
-              <div className="flex-1 bg-gradient-to-br from-blue-50 to-white rounded-xl p-4 border border-blue-100">
-                <div className="text-xs text-slate-500 mb-2">均布荷载</div>
-                <div className="text-sm font-mono text-slate-700">Z = q × A</div>
-                <div className="text-xs text-slate-500 mt-1">A为影响线下的面积</div>
-              </div>
-              <div className="flex-1 bg-gradient-to-br from-green-50 to-white rounded-xl p-4 border border-green-100">
-                <div className="text-xs text-slate-500 mb-2">多个集中力</div>
-                <div className="text-sm font-mono text-slate-700">Z = ΣPᵢ × yᵢ</div>
-                <div className="text-xs text-slate-500 mt-1">各荷载贡献叠加</div>
-              </div>
-            </div>
+          <div className="flex gap-3 text-xs mt-3 pt-3 border-t border-slate-100">
+            <div className="flex-1 bg-red-50 rounded-lg p-2 text-center"><span className="font-mono font-bold">Z = P × y</span><br/>集中力</div>
+            <div className="flex-1 bg-blue-50 rounded-lg p-2 text-center"><span className="font-mono font-bold">Z = q × A</span><br/>均布荷载</div>
+            <div className="flex-1 bg-green-50 rounded-lg p-2 text-center"><span className="font-mono font-bold">Z = ΣPᵢyᵢ</span><br/>多个集中力</div>
           </div>
         </div>
+        <SolutionSteps steps={solveSteps} title="求解过程" />
       </div>
 
-      <div className="w-80 flex-shrink-0">
+      <CollapsiblePanel title="AI助手" icon="🤖" side="right" storageKey="ai-panel-il-application">
         <AITutor context={context} moduleTitle="影响线应用"
           suggestedQuestions={['如何用影响线求弯矩？', '均布荷载怎么计算？', '最不利荷载位置怎么确定？']} />
-      </div>
+      </CollapsiblePanel>
     </div>
   );
 };

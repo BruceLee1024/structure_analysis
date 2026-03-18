@@ -205,8 +205,8 @@ export const autoConnectNodes = (
             const currentT = pt.t;
             const relevantLoads = elementLoads.filter(l => l.elementId === el.id);
             
-            relevantLoads.forEach(l => {
-                const lClone = { ...l, id: `auto-${Math.random().toString(36).substr(2,9)}` };
+            relevantLoads.forEach((l, li) => {
+                const lClone = { ...l, id: `auto-${el.id}-${elId}-${li}` };
                 lClone.elementId = elId;
                 
                 if (l.type === 'distributed') {

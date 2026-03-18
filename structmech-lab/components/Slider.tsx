@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 
 interface SliderProps {
   label: string;
@@ -11,13 +11,62 @@ interface SliderProps {
 }
 
 export const Slider: React.FC<SliderProps> = ({ label, value, min, max, step = 1, onChange, unit = '' }) => {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState('');
+  const inputRef = useRef<HTMLInputElement>(null);
+  const decimals = step < 0.01 ? 3 : step < 0.1 ? 2 : step < 1 ? 1 : 0;
+
+  useEffect(() => {
+    if (editing && inputRef.current) {
+      inputRef.current.focus();
+      inputRef.current.select();
+    }
+  }, [editing]);
+
+  const commitValue = useCallback(() => {
+    setEditing(false);
+    const parsed = parseFloat(draft);
+    if (!isNaN(parsed)) {
+      const clamped = Math.min(max, Math.max(min, parsed));
+      const stepped = Math.round(clamped / step) * step;
+      onChange(parseFloat(stepped.toFixed(decimals)));
+    }
+  }, [draft, min, max, step, decimals, onChange]);
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') commitValue();
+    if (e.key === 'Escape') setEditing(false);
+  };
+
   return (
-    <div className="mb-5">
+    <div className="mb-3">
       <div className="flex justify-between items-center mb-2">
         <label className="text-sm font-semibold text-slate-700">{label}</label>
-        <span className="text-sm font-mono text-blue-700 bg-blue-50 px-3 py-1 rounded-lg font-medium">
-          {value.toFixed(step < 0.1 ? 2 : 1)} {unit}
-        </span>
+        {editing ? (
+          <div className="flex items-center gap-1">
+            <input
+              ref={inputRef}
+              type="number"
+              value={draft}
+              min={min}
+              max={max}
+              step={step}
+              onChange={(e) => setDraft(e.target.value)}
+              onBlur={commitValue}
+              onKeyDown={handleKeyDown}
+              className="w-20 text-sm font-mono text-blue-700 bg-white px-2 py-1 rounded-lg border-2 border-blue-400 text-right outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+            />
+            {unit && <span className="text-xs text-slate-500">{unit}</span>}
+          </div>
+        ) : (
+          <button
+            onClick={() => { setDraft(value.toFixed(decimals)); setEditing(true); }}
+            className="text-sm font-mono text-blue-700 bg-blue-50 px-3 py-1 rounded-lg font-medium hover:bg-blue-100 hover:ring-2 hover:ring-blue-300 transition-all cursor-text"
+            title="点击输入精确值"
+          >
+            {value.toFixed(decimals)} {unit}
+          </button>
+        )}
       </div>
       <input
         type="range"

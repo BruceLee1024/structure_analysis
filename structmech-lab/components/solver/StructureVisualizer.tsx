@@ -185,14 +185,56 @@ const DiagramView = React.memo(({
     }, [loads, nodes, elements, showLoads, toPx]);
 
 
+    const reactionsLayer = useMemo(() => {
+        if (!isEditor) return null;
+        return results.reactions.map(r => {
+            const n = nodes.find(nd => nd.id === r.nodeId);
+            if (!n) return null;
+            const p = toPx(n.x, n.y);
+            const arrowLen = 30;
+            const items: React.ReactNode[] = [];
+            if (Math.abs(r.fx) > 0.01) {
+                const dir = r.fx > 0 ? 1 : -1;
+                items.push(
+                    <g key={`rx-${r.nodeId}`}>
+                        <line x1={p.x - dir * arrowLen} y1={p.y} x2={p.x - dir * 4} y2={p.y} stroke="#22d3ee" strokeWidth="2" markerEnd="url(#arrowhead-reaction)" />
+                        <text x={p.x - dir * arrowLen - dir * 5} y={p.y - 5} fill="#22d3ee" fontSize="9" fontWeight="bold" textAnchor={dir > 0 ? 'end' : 'start'}>{Math.abs(r.fx).toFixed(1)}</text>
+                    </g>
+                );
+            }
+            if (Math.abs(r.fy) > 0.01) {
+                const dir = r.fy > 0 ? -1 : 1;
+                items.push(
+                    <g key={`ry-${r.nodeId}`}>
+                        <line x1={p.x} y1={p.y + dir * arrowLen} x2={p.x} y2={p.y + dir * 4} stroke="#22d3ee" strokeWidth="2" markerEnd="url(#arrowhead-reaction)" />
+                        <text x={p.x + 8} y={p.y + dir * arrowLen + dir * 5} fill="#22d3ee" fontSize="9" fontWeight="bold" textAnchor="start">{Math.abs(r.fy).toFixed(1)}</text>
+                    </g>
+                );
+            }
+            if (Math.abs(r.m) > 0.01) {
+                const isCCW = r.m > 0;
+                items.push(
+                    <g key={`rm-${r.nodeId}`}>
+                        <path d={isCCW ? `M ${p.x+14} ${p.y} A 14 14 0 1 0 ${p.x} ${p.y-14}` : `M ${p.x+14} ${p.y} A 14 14 0 1 1 ${p.x} ${p.y-14}`} fill="none" stroke="#22d3ee" strokeWidth="1.5" markerEnd="url(#arrowhead-reaction)" />
+                        <text x={p.x + 18} y={p.y - 16} fill="#22d3ee" fontSize="9" fontWeight="bold">{Math.abs(r.m).toFixed(1)}</text>
+                    </g>
+                );
+            }
+            return items.length > 0 ? <g key={`react-${r.nodeId}`}>{items}</g> : null;
+        });
+    }, [isEditor, results.reactions, nodes, toPx]);
+
     const resultsLayer = useMemo(() => {
         if (isEditor) return null;
-        return results.elements.map(res => {
+        const paths: React.ReactNode[] = [];
+        const labels: React.ReactNode[] = [];
+
+        results.elements.forEach(res => {
             const el = elements.find(e => e.id === res.elementId);
-            if (!el) return null;
+            if (!el) return;
             const n1 = nodes.find(n => n.id === el.startNode);
             const n2 = nodes.find(n => n.id === el.endNode);
-            if (!n1 || !n2) return null;
+            if (!n1 || !n2) return;
 
             const start = toPx(n1.x, n1.y);
             const end = toPx(n2.x, n2.y);
@@ -206,6 +248,10 @@ const DiagramView = React.memo(({
             let path = `M ${start.x} ${start.y}`;
             let color = "#3b82f6";
             let fillOp = 0.4;
+
+            let peakVal = 0;
+            let peakPx = { x: 0, y: 0 };
+            let peakTipPx = { x: 0, y: 0 };
 
             res.stations.forEach((st, i) => {
                 let val = 0;
@@ -221,11 +267,37 @@ const DiagramView = React.memo(({
                 
                 if (i === 0) path = `M ${px} ${py}`;
                 else path += ` L ${px} ${py}`;
+
+                let rawVal = 0;
+                if(mode === 'M') rawVal = st.moment;
+                if(mode === 'V') rawVal = st.shear;
+                if(mode === 'N') rawVal = st.axial;
+                if(mode === 'D') rawVal = st.deflectionY;
+                if (Math.abs(rawVal) > Math.abs(peakVal)) {
+                    peakVal = rawVal;
+                    peakPx = { x: start.x + dx * t, y: start.y + dy * t };
+                    peakTipPx = { x: px, y: py };
+                }
             });
 
             if (mode !== 'D') path += ` L ${end.x} ${end.y} L ${start.x} ${start.y} Z`;
-            return <path key={el.id} d={path} fill={color} fillOpacity={fillOp} stroke={color} strokeWidth="2" vectorEffect="non-scaling-stroke" />;
+            paths.push(<path key={`p-${el.id}`} d={path} fill={color} fillOpacity={fillOp} stroke={color} strokeWidth="2" vectorEffect="non-scaling-stroke" />);
+
+            if (Math.abs(peakVal) > 0.01) {
+                const unit = mode === 'M' ? 'kNm' : mode === 'D' ? 'mm' : 'kN';
+                const labelOffX = snx > 0 ? 6 : -6;
+                const labelOffY = sny > 0 ? -4 : 12;
+                const anchor = snx > 0 ? 'start' : 'end';
+                labels.push(
+                    <g key={`lbl-${el.id}`}>
+                        <circle cx={peakTipPx.x} cy={peakTipPx.y} r="2.5" fill={color} />
+                        <text x={peakTipPx.x + labelOffX} y={peakTipPx.y + labelOffY} fill={color} fontSize="9" fontWeight="bold" textAnchor={anchor} stroke="#0f172a" strokeWidth="3" paintOrder="stroke">{peakVal.toFixed(2)} {unit}</text>
+                    </g>
+                );
+            }
         });
+
+        return <>{paths}{labels}</>;
     }, [isEditor, mode, results, elements, nodes, toPx, mScale, vScale, nScale, dScale]);
 
     const activeData = useMemo(() => {
@@ -366,12 +438,14 @@ const DiagramView = React.memo(({
                         <marker id="arrowhead-load" markerWidth="10" markerHeight="10" refX="5" refY="5" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#ef4444" /></marker>
                         <marker id="arrowhead-moment" markerWidth="6" markerHeight="6" refX="3" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 z" fill="#f97316" /></marker>
                         <marker id="arrowhead-load-dist" markerWidth="6" markerHeight="6" refX="3" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 z" fill="#a855f7" /></marker>
+                        <marker id="arrowhead-reaction" markerWidth="8" markerHeight="8" refX="4" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#22d3ee" /></marker>
                     </defs>
                     <pattern id={`grid-${mode}`} width="40" height="40" patternUnits="userSpaceOnUse">
                         <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#1e293b" strokeWidth="1"/>
                     </pattern>
                     <rect width="100%" height="100%" fill={`url(#grid-${mode})`} />
                     {structureLayer}
+                    {reactionsLayer}
                     {loadsLayer}
                     {resultsLayer}
                     {activeData && (() => {
@@ -467,7 +541,9 @@ const StructureVisualizer: React.FC<StructureVisualizerProps> = ({ params, nodes
       d: results.maxDeflection
   }), [results]);
 
-  const viewProps = { nodes, elements, results, loads, transform, activeLocation, setActiveLocation, onAddLoad, maxValues, structureType: params.structureType };
+  const viewProps = useMemo(() => ({
+    nodes, elements, results, loads, transform, activeLocation, setActiveLocation, onAddLoad, maxValues, structureType: params.structureType
+  }), [nodes, elements, results, loads, transform, activeLocation, setActiveLocation, onAddLoad, maxValues, params.structureType]);
 
   return (
       <div className="flex flex-col w-full max-w-6xl mx-auto h-full gap-2">
@@ -476,16 +552,16 @@ const StructureVisualizer: React.FC<StructureVisualizerProps> = ({ params, nodes
           </div>
           <div className="flex-1 min-h-0 grid grid-cols-2 grid-rows-2 gap-2">
               <div className="rounded-xl border border-slate-700 overflow-hidden shadow-sm relative">
-                  <DiagramView mode="M" title="弯矩图 (Moment Diagram)" {...viewProps} />
+                  <DiagramView mode="M" title={`弯矩图 M_max=${maxValues.m.toFixed(2)} kNm`} {...viewProps} />
               </div>
               <div className="rounded-xl border border-slate-700 overflow-hidden shadow-sm relative">
-                  <DiagramView mode="V" title="剪力图 (Shear Diagram)" {...viewProps} />
+                  <DiagramView mode="V" title={`剪力图 V_max=${maxValues.v.toFixed(2)} kN`} {...viewProps} />
               </div>
               <div className="rounded-xl border border-slate-700 overflow-hidden shadow-sm relative">
-                  <DiagramView mode="N" title="轴力图 (Axial Force Diagram)" {...viewProps} />
+                  <DiagramView mode="N" title={`轴力图 N_max=${maxValues.n.toFixed(2)} kN`} {...viewProps} />
               </div>
               <div className="rounded-xl border border-slate-700 overflow-hidden shadow-sm relative">
-                  <DiagramView mode="D" title="变形图 (Deflection)" {...viewProps} />
+                  <DiagramView mode="D" title={`变形图 δ_max=${maxValues.d.toFixed(4)} mm`} {...viewProps} />
               </div>
           </div>
       </div>

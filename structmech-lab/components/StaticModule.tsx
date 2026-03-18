@@ -1,6 +1,9 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { Slider } from './Slider';
 import AITutor from './AITutor';
+import ResultCard from './ui/ResultCard';
+import SolutionSteps from './ui/SolutionSteps';
+import CollapsiblePanel from './ui/CollapsiblePanel';
 
 // 内力图组件
 interface DiagramProps {
@@ -106,191 +109,300 @@ const FormulaCard: React.FC<{ title: string; formula: string; desc?: string }> =
   </div>
 );
 
-// 结果卡片
-const ResultCard: React.FC<{ label: string; value: string; unit: string; color?: string }> = ({ label, value, unit, color = 'blue' }) => {
-  const colors: Record<string, string> = {
-    blue: 'bg-gradient-to-br from-blue-50 to-blue-100/50 text-blue-700 border-blue-200',
-    red: 'bg-gradient-to-br from-red-50 to-red-100/50 text-red-700 border-red-200',
-    green: 'bg-gradient-to-br from-green-50 to-green-100/50 text-green-700 border-green-200',
-    purple: 'bg-gradient-to-br from-purple-50 to-purple-100/50 text-purple-700 border-purple-200',
-  };
-  return (
-    <div className={`${colors[color]} rounded-xl p-3 text-center flex-1 border shadow-sm`}>
-      <div className="text-xs text-slate-500 mb-1">{label}</div>
-      <div className="text-lg font-bold">{value} <span className="text-xs font-medium opacity-80">{unit}</span></div>
-    </div>
-  );
-};
 
 // ==================== 几何组成分析 ====================
 const GeometryAnalysis: React.FC = () => {
   const [nodes, setNodes] = useState(4);
   const [bars, setBars] = useState(5);
   const [constraints, setConstraints] = useState(3);
+  const [preset, setPreset] = useState<string>('custom');
+  
+  const presets = [
+    { id: 'custom', name: '自定义', n: 0, b: 0, c: 0 },
+    { id: 'simple_beam', name: '简支梁', n: 2, b: 1, c: 3 },
+    { id: 'cantilever', name: '悬臂梁', n: 2, b: 1, c: 3 },
+    { id: 'truss3', name: '三角桁架', n: 3, b: 3, c: 3 },
+    { id: 'frame', name: '门式刚架', n: 4, b: 3, c: 4 },
+    { id: 'indeterminate', name: '一次超静定梁', n: 3, b: 2, c: 4 },
+  ];
+
+  const handlePreset = (id: string) => {
+    setPreset(id);
+    const p = presets.find(x => x.id === id);
+    if (p && id !== 'custom') { setNodes(p.n); setBars(p.b); setConstraints(p.c); }
+  };
   
   const W = 3 * nodes - 2 * bars - constraints;
   
   const getStatus = () => {
-    if (W > 0) return { text: '几何可变体系', color: 'text-red-600', bg: 'bg-gradient-to-br from-red-50 to-red-100/50 border-red-200' };
-    if (W === 0) return { text: '几何不变（静定）', color: 'text-green-600', bg: 'bg-gradient-to-br from-green-50 to-green-100/50 border-green-200' };
-    return { text: `${Math.abs(W)}次超静定`, color: 'text-blue-600', bg: 'bg-gradient-to-br from-blue-50 to-blue-100/50 border-blue-200' };
+    if (W > 0) return { text: '几何可变体系', color: 'text-red-600', bg: 'bg-gradient-to-br from-red-50 to-red-100/50 border-red-200', icon: '⚠' };
+    if (W === 0) return { text: '几何不变（静定）', color: 'text-green-600', bg: 'bg-gradient-to-br from-green-50 to-green-100/50 border-green-200', icon: '✓' };
+    return { text: `${Math.abs(W)}次超静定`, color: 'text-blue-600', bg: 'bg-gradient-to-br from-blue-50 to-blue-100/50 border-blue-200', icon: '🔒' };
   };
   const status = getStatus();
   const context = `节点数n=${nodes}, 杆件数b=${bars}, 约束数c=${constraints}, 自由度W=${W}, 判定: ${status.text}`;
 
+  const solveSteps = useMemo(() => [
+    { title: '确定节点数', equation: `n = ${nodes}`, explanation: '体系中可自由运动的节点数' },
+    { title: '计算节点自由度', equation: `3n = 3 × ${nodes} = ${3 * nodes}`, explanation: '每个节点有3个自由度(水平、竖向、转角)' },
+    { title: '计算约束总数', equation: `2b + c = 2 × ${bars} + ${constraints} = ${2 * bars + constraints}`, explanation: '内部杆件约束 + 外部支座约束' },
+    { title: '代入公式', equation: `W = 3n − 2b − c = ${3*nodes} − ${2*bars} − ${constraints}`, result: `${W}` },
+    { title: '判定结果', result: `${status.icon} ${status.text}`, explanation: W > 0 ? '体系缺少约束，可自由运动' : W === 0 ? '约束恰好，结构稳定且可用静力学求解' : `多余约束数为${Math.abs(W)}，需用力法/位移法求解` },
+  ], [nodes, bars, constraints, W, status]);
+
   return (
-    <div className="flex gap-5 h-full p-5">
-      {/* 左侧+中间 */}
-      <div className="flex-1 flex flex-col gap-4 min-w-0">
-        {/* 上：参数 + 示意 */}
-        <div className="flex gap-4">
-          <div className="bg-white rounded-2xl border border-slate-200 p-5 w-72 flex-shrink-0 shadow-sm">
-            <h4 className="text-sm font-bold text-slate-800 mb-4 flex items-center gap-2">🔧 参数设置</h4>
-            <Slider label="节点数 n" value={nodes} min={2} max={10} unit="" onChange={setNodes} />
-            <Slider label="杆件数 b" value={bars} min={1} max={15} unit="" onChange={setBars} />
-            <Slider label="约束数 c" value={constraints} min={0} max={10} unit="" onChange={setConstraints} />
+    <div className="flex flex-col lg:flex-row gap-3 lg:gap-4 min-h-full p-3 lg:p-4">
+      <CollapsiblePanel title="参数" icon="🔧" side="left" storageKey="param-panel-geometry">
+        <div className="bg-white rounded-xl border border-slate-200/80 p-3 shadow-sm overflow-y-auto">
+          <h4 className="text-xs font-semibold text-slate-600 mb-2 flex items-center gap-1.5">🔧 参数设置</h4>
+          <div className="flex flex-wrap gap-1.5 mb-3">
+            {presets.map(p => (
+              <button key={p.id} onClick={() => handlePreset(p.id)}
+                className={`px-2 py-1 text-[10px] font-medium rounded-lg transition-all ${preset === p.id ? 'bg-blue-600 text-white shadow-md' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>
+                {p.name}
+              </button>
+            ))}
           </div>
-          <div className="bg-white rounded-2xl border border-slate-200 p-5 flex-1 shadow-sm">
-            <h4 className="text-sm font-bold text-slate-800 mb-4 flex items-center gap-2">📐 计算公式</h4>
-            <div className="bg-gradient-to-br from-slate-50 to-white rounded-xl p-5 text-center border border-slate-100">
+          <Slider label="节点数 n" value={nodes} min={2} max={10} unit="" onChange={(v) => { setNodes(v); setPreset('custom'); }} />
+          <Slider label="杆件数 b" value={bars} min={1} max={15} unit="" onChange={(v) => { setBars(v); setPreset('custom'); }} />
+          <Slider label="约束数 c" value={constraints} min={0} max={10} unit="" onChange={(v) => { setConstraints(v); setPreset('custom'); }} />
+        </div>
+      </CollapsiblePanel>
+      <div className="flex-1 flex flex-col gap-2 lg:gap-3 min-w-0">
+        {/* 上：公式 */}
+        <div className="bg-white rounded-xl border border-slate-200/80 p-4 shadow-sm flex flex-col gap-3">
+            <h4 className="text-xs font-semibold text-slate-600 flex items-center gap-1.5">📐 计算公式</h4>
+            <div className="bg-gradient-to-br from-slate-50 to-white rounded-lg p-4 text-center border border-slate-100 flex-1 flex flex-col justify-center">
               <div className="text-sm text-slate-500 mb-3">平面体系自由度公式</div>
-              <div className="text-3xl font-serif mb-3 text-slate-800">W = 3n - 2b - c</div>
+              <div className="text-3xl font-serif mb-3 text-slate-800">W = 3n − 2b − c</div>
               <div className="text-base text-slate-600">
-                W = 3×{nodes} - 2×{bars} - {constraints} = <span className={`text-xl font-bold ${status.color}`}>{W}</span>
+                W = 3×{nodes} − 2×{bars} − {constraints} = <span className={`text-xl font-bold ${status.color}`}>{W}</span>
               </div>
             </div>
-          </div>
+            {/* 判定结果 */}
+            <div className={`p-4 rounded-xl border shadow-sm ${status.bg} flex items-center justify-between`}>
+              <span className="text-base font-medium text-slate-600">判定结果</span>
+              <span className={`text-xl font-bold ${status.color}`}>{status.icon} {status.text}</span>
+            </div>
         </div>
 
         {/* 中：判定规则 */}
-        <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
-          <h4 className="text-sm font-bold text-slate-800 mb-4 flex items-center gap-2">📊 判定规则</h4>
-          <div className="flex gap-4">
-            <div className="bg-gradient-to-br from-red-50 to-red-100/30 p-4 rounded-xl text-center flex-1 border border-red-100">
-              <div className="text-xl font-bold text-red-600">W {'>'} 0</div>
-              <div className="text-sm text-slate-600 mt-2">几何可变体系</div>
-            </div>
-            <div className="bg-gradient-to-br from-green-50 to-green-100/30 p-4 rounded-xl text-center flex-1 border border-green-100">
-              <div className="text-xl font-bold text-green-600">W = 0</div>
-              <div className="text-sm text-slate-600 mt-2">静定结构</div>
-            </div>
-            <div className="bg-gradient-to-br from-blue-50 to-blue-100/30 p-4 rounded-xl text-center flex-1 border border-blue-100">
-              <div className="text-xl font-bold text-blue-600">W {'<'} 0</div>
-              <div className="text-sm text-slate-600 mt-2">超静定结构</div>
-            </div>
+        <div className="bg-white rounded-xl border border-slate-200/80 p-4 shadow-sm">
+          <h4 className="text-xs font-semibold text-slate-600 mb-3 flex items-center gap-1.5">📊 判定规则</h4>
+          <div className="flex flex-col sm:flex-row gap-2 sm:gap-3">
+            {[
+              { cond: 'W > 0', label: '几何可变体系', desc: '缺少约束，不稳定', active: W > 0,
+                activeCls: 'bg-gradient-to-br from-red-50 to-red-100/50 border-red-400 shadow-md scale-[1.02]',
+                textCls: 'text-red-600' },
+              { cond: 'W = 0', label: '静定结构', desc: '恰好约束，可静力求解', active: W === 0,
+                activeCls: 'bg-gradient-to-br from-green-50 to-green-100/50 border-green-400 shadow-md scale-[1.02]',
+                textCls: 'text-green-600' },
+              { cond: 'W < 0', label: '超静定结构', desc: '多余约束，需特殊方法', active: W < 0,
+                activeCls: 'bg-gradient-to-br from-blue-50 to-blue-100/50 border-blue-400 shadow-md scale-[1.02]',
+                textCls: 'text-blue-600' },
+            ].map(r => (
+              <div key={r.cond} className={`p-4 rounded-xl text-center flex-1 border-2 transition-all duration-300 ${
+                r.active ? r.activeCls : 'bg-slate-50 border-slate-200 opacity-60'
+              }`}>
+                <div className={`text-xl font-bold ${r.active ? r.textCls : 'text-slate-400'}`}>{r.cond}</div>
+                <div className={`text-sm mt-1 ${r.active ? 'text-slate-700 font-semibold' : 'text-slate-400'}`}>{r.label}</div>
+                <div className="text-xs text-slate-500 mt-1">{r.desc}</div>
+              </div>
+            ))}
           </div>
         </div>
 
-        {/* 下：结果 + 特点（上下排列） */}
-        <div className="flex flex-col gap-4">
-          <div className={`p-5 rounded-2xl border shadow-sm ${status.bg}`}>
-            <div className="flex items-center justify-between">
-              <span className="text-base font-medium text-slate-600">判定结果</span>
-              <span className={`text-2xl font-bold ${status.color}`}>{status.text}</span>
-            </div>
+        {/* 下：求解过程 + 约束类型 */}
+        <div className="flex flex-col md:flex-row gap-2 md:gap-3">
+          <div className="flex-1">
+            <SolutionSteps steps={solveSteps} title="求解过程" />
           </div>
-          <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
-            <h4 className="text-sm font-bold text-slate-800 mb-3">📖 约束类型</h4>
-            <div className="text-sm text-slate-600 space-y-1.5">
-              <div>• 固定铰支座：2约束 &nbsp; • 滚动铰支座：1约束</div>
-              <div>• 固定端：3约束 &nbsp; • 单铰连接：2约束</div>
+          <div className="bg-white rounded-xl border border-slate-200/80 p-4 shadow-sm w-64 flex-shrink-0">
+            <h4 className="text-xs font-semibold text-slate-600 mb-3">📖 约束类型速查</h4>
+            <div className="space-y-2">
+              {[
+                { name: '固定铰支座', count: 2, icon: '△' },
+                { name: '滚动铰支座', count: 1, icon: '○' },
+                { name: '固定端（嵌固）', count: 3, icon: '▐' },
+                { name: '单铰连接', count: 2, icon: '◎' },
+                { name: '链杆', count: 1, icon: '—' },
+              ].map(c => (
+                <div key={c.name} className="flex items-center justify-between px-3 py-2 bg-slate-50 rounded-lg">
+                  <span className="text-sm text-slate-600 flex items-center gap-2">
+                    <span className="text-base text-slate-400 w-5 text-center font-mono">{c.icon}</span>
+                    {c.name}
+                  </span>
+                  <span className="text-sm font-bold text-blue-600">{c.count}约束</span>
+                </div>
+              ))}
             </div>
           </div>
         </div>
       </div>
 
-      {/* 右侧：AI助教 */}
-      <div className="w-80 flex-shrink-0">
+      <CollapsiblePanel title="AI助手" icon="🤖" side="right" storageKey="ai-panel-geometry">
         <AITutor context={context} moduleTitle="几何组成分析"
           suggestedQuestions={['什么是瞬变体系？', 'W=0一定稳定吗？', '如何增加约束？']} />
-      </div>
+      </CollapsiblePanel>
     </div>
   );
 };
 
 // ==================== 静定梁 ====================
 const StaticBeam: React.FC = () => {
-  const [beamType, setBeamType] = useState<'simple' | 'cantilever'>('simple');
+  const [beamType, setBeamType] = useState<'simple' | 'cantilever' | 'overhanging'>('simple');
   const [loadType, setLoadType] = useState<'point' | 'distributed'>('point');
   const [L, setL] = useState(8);
   const [P, setP] = useState(20);
   const [q, setQ] = useState(10);
   const [a, setA] = useState(50);
+  const [overhang, setOverhang] = useState(2);
+  
+  // Clamp overhang when L shrinks
+  const safeOverhang = Math.min(overhang, Math.max(1, Math.floor(L / 2)));
   
   let RA = 0, RB = 0, Mmax = 0, Vmax = 0;
-  let formula = '';
   
   const loadPos = (a / 100) * L;
-  const b = L - loadPos;
+  const bLen = L - loadPos;
   
-  if (loadType === 'point') {
+  if (beamType === 'overhanging') {
+    const totalL = L + safeOverhang;
+    if (loadType === 'point') {
+      const pPos = (a / 100) * totalL;
+      RB = (P * pPos) / L;
+      RA = P - RB;
+      if (pPos <= L) {
+        Mmax = RA * pPos;
+      } else {
+        Mmax = Math.max(Math.abs(P * (pPos - L)), Math.abs(RB * L));
+      }
+      Vmax = Math.max(Math.abs(RA), Math.abs(RB));
+    } else {
+      RA = (q * totalL * totalL) / (2 * L);
+      RB = q * totalL - RA;
+      const x0 = RA / q;
+      Mmax = Math.max(Math.abs(RA * x0 - q * x0 * x0 / 2), Math.abs(q * safeOverhang * safeOverhang / 2));
+      Vmax = Math.max(Math.abs(RA), Math.abs(RB));
+    }
+  } else if (loadType === 'point') {
     if (beamType === 'simple') {
       RB = (P * loadPos) / L;
       RA = P - RB;
-      Mmax = (P * loadPos * b) / L;
+      Mmax = (P * loadPos * bLen) / L;
       Vmax = Math.max(RA, RB);
-      formula = 'RA=Pb/L, RB=Pa/L, Mmax=Pab/L';
     } else {
       RA = P; Mmax = P * loadPos; Vmax = P;
-      formula = 'RA=P, Mmax=Pa (在固定端)';
     }
   } else {
     if (beamType === 'simple') {
       RA = RB = (q * L) / 2;
       Mmax = (q * L * L) / 8;
       Vmax = RA;
-      formula = 'RA=RB=qL/2, Mmax=qL²/8 (跨中)';
     } else {
       RA = q * L;
       Mmax = (q * L * L) / 2;
       Vmax = RA;
-      formula = 'RA=qL, Mmax=qL²/2 (固定端)';
     }
   }
   
   const mScale = 35 / (Mmax || 1);
   const vScale = 30 / (Vmax || 1);
 
-  const context = `${beamType === 'simple' ? '简支梁' : '悬臂梁'}, ${loadType === 'point' ? `集中力P=${P}kN` : `均布q=${q}kN/m`}, L=${L}m`;
+  const beamLabel = beamType === 'simple' ? '简支梁' : beamType === 'cantilever' ? '悬臂梁' : '外伸梁';
+  const context = `${beamLabel}, ${loadType === 'point' ? `集中力P=${P}kN` : `均布q=${q}kN/m`}, L=${L}m${beamType === 'overhanging' ? `, 悬臂=${safeOverhang}m` : ''}`;
+
+  const solveSteps = useMemo(() => {
+    const steps: { title: string; equation?: string; result?: string; explanation?: string }[] = [];
+    if (beamType === 'simple' && loadType === 'point') {
+      const aPos = loadPos, bPos = bLen;
+      steps.push({ title: '取整体平衡 ΣMA=0', equation: `RB×${L} = P×a = ${P}×${aPos.toFixed(1)}`, result: `RB = ${RB.toFixed(2)} kN` });
+      steps.push({ title: 'ΣFy=0', equation: `RA + RB = P`, result: `RA = ${RA.toFixed(2)} kN` });
+      steps.push({ title: '求最大弯矩', equation: `Mmax = P·a·b/L = ${P}×${aPos.toFixed(1)}×${bPos.toFixed(1)}/${L}`, result: `${Mmax.toFixed(2)} kN·m`, explanation: '在集中力作用点处' });
+    } else if (beamType === 'simple' && loadType === 'distributed') {
+      steps.push({ title: '对称性 → RA=RB', equation: `RA = RB = qL/2 = ${q}×${L}/2`, result: `${RA.toFixed(2)} kN` });
+      steps.push({ title: '求跨中最大弯矩', equation: `Mmax = qL²/8 = ${q}×${L}²/8`, result: `${Mmax.toFixed(2)} kN·m`, explanation: '抛物线分布，最大值在跨中' });
+    } else if (beamType === 'cantilever' && loadType === 'point') {
+      steps.push({ title: 'ΣFy=0', equation: `RA = P`, result: `${RA.toFixed(2)} kN` });
+      steps.push({ title: '固定端弯矩', equation: `M = P×a = ${P}×${loadPos.toFixed(1)}`, result: `${Mmax.toFixed(2)} kN·m`, explanation: '弯矩在固定端最大' });
+    } else if (beamType === 'cantilever' && loadType === 'distributed') {
+      steps.push({ title: 'ΣFy=0', equation: `RA = qL = ${q}×${L}`, result: `${RA.toFixed(2)} kN` });
+      steps.push({ title: '固定端弯矩', equation: `M = qL²/2 = ${q}×${L}²/2`, result: `${Mmax.toFixed(2)} kN·m` });
+    } else if (beamType === 'overhanging') {
+      steps.push({ title: 'ΣMA=0 求RB', result: `RB = ${RB.toFixed(2)} kN` });
+      steps.push({ title: 'ΣFy=0 求RA', result: `RA = ${RA.toFixed(2)} kN` });
+      steps.push({ title: '最大弯矩', result: `Mmax = ${Mmax.toFixed(2)} kN·m`, explanation: '注意悬臂端负弯矩' });
+    }
+    steps.push({ title: '最大剪力', result: `Vmax = ${Vmax.toFixed(2)} kN` });
+    return steps;
+  }, [beamType, loadType, L, P, q, a, RA, RB, Mmax, Vmax, loadPos, bLen, safeOverhang]);
 
   // 梁基础结构组件
-  const BeamBase = ({ showLoad = true }: { showLoad?: boolean }) => (
+  const BeamBase = ({ showLoad = true }: { showLoad?: boolean }) => {
+    const beamEnd = beamType === 'overhanging' ? 230 : 210;
+    const supportB = beamType === 'overhanging' ? 170 : 210;
+    return (
     <>
-      <line x1="30" y1="60" x2="210" y2="60" stroke="#334155" strokeWidth="5" />
-      {beamType === 'simple' ? (
+      <line x1="30" y1="60" x2={beamEnd} y2="60" stroke="#334155" strokeWidth="5" />
+      {beamType === 'cantilever' ? (
+        <rect x="22" y="45" width="8" height="35" fill="#94a3b8" />
+      ) : (
         <>
           <polygon points="30,64 22,78 38,78" fill="#94a3b8" />
-          <circle cx="210" cy="70" r="5" fill="#94a3b8" />
-          <line x1="200" y1="78" x2="220" y2="78" stroke="#94a3b8" strokeWidth="2" />
+          <circle cx={supportB} cy="70" r="5" fill="#94a3b8" />
+          <line x1={supportB - 10} y1="78" x2={supportB + 10} y2="78" stroke="#94a3b8" strokeWidth="2" />
         </>
-      ) : (
-        <rect x="22" y="45" width="8" height="35" fill="#94a3b8" />
       )}
       {showLoad && loadType === 'point' ? (
         <>
-          <line x1={30 + (a/100) * 180} y1="25" x2={30 + (a/100) * 180} y2="55" stroke="#ef4444" strokeWidth="1" />
-          <polygon points={`${30 + (a/100) * 180 - 3},52 ${30 + (a/100) * 180 + 3},52 ${30 + (a/100) * 180},58`} fill="#ef4444" />
-          <text x={35 + (a/100) * 180} y="22" className="text-[10px] fill-red-600 font-bold">P={P}kN</text>
+          <line x1={30 + (a/100) * (beamEnd - 30)} y1="25" x2={30 + (a/100) * (beamEnd - 30)} y2="55" stroke="#ef4444" strokeWidth="1" />
+          <polygon points={`${30 + (a/100) * (beamEnd - 30) - 3},52 ${30 + (a/100) * (beamEnd - 30) + 3},52 ${30 + (a/100) * (beamEnd - 30)},58`} fill="#ef4444" />
+          <text x={35 + (a/100) * (beamEnd - 30)} y="22" className="text-[10px] fill-red-600 font-bold">P={P}kN</text>
         </>
       ) : showLoad && (
         <>
-          {[0,1,2,3,4,5,6,7].map(i => (
-            <g key={i}>
-              <line x1={40 + i*22} y1="35" x2={40 + i*22} y2="52" stroke="#ef4444" strokeWidth="1" />
-              <polygon points={`${40 + i*22 - 2},50 ${40 + i*22 + 2},50 ${40 + i*22},55`} fill="#ef4444" />
-            </g>
-          ))}
-          <line x1="40" y1="35" x2="194" y2="35" stroke="#ef4444" strokeWidth="0.8" />
-          <text x="120" y="28" className="text-[10px] fill-red-600 font-bold" textAnchor="middle">q={q}kN/m</text>
+          {[0,1,2,3,4,5,6,7].map(i => {
+            const x = 40 + i * ((beamEnd - 50) / 7);
+            return (
+              <g key={i}>
+                <line x1={x} y1="35" x2={x} y2="52" stroke="#ef4444" strokeWidth="1" />
+                <polygon points={`${x - 2},50 ${x + 2},50 ${x},55`} fill="#ef4444" />
+              </g>
+            );
+          })}
+          <line x1="40" y1="35" x2={beamEnd - 10} y2="35" stroke="#ef4444" strokeWidth="0.8" />
+          <text x={(30 + beamEnd) / 2} y="28" className="text-[10px] fill-red-600 font-bold" textAnchor="middle">q={q}kN/m</text>
         </>
       )}
-      <text x="120" y="95" className="text-[10px] fill-slate-500" textAnchor="middle">L={L}m</text>
+      <text x={(30 + beamEnd) / 2} y="95" className="text-[10px] fill-slate-500" textAnchor="middle">
+        L={L}m{beamType === 'overhanging' ? ` + ${safeOverhang}m悬臂` : ''}
+      </text>
     </>
-  );
+    );
+  };
 
   // 弯矩图路径
   const getMomentPath = () => {
     const baseY = 60;
+    if (beamType === 'overhanging') {
+      const totalL = L + safeOverhang;
+      let path = `M 30,${baseY}`;
+      for (let i = 0; i <= 30; i++) {
+        const xi = i / 30;
+        const x = 30 + xi * 200;
+        const xPos = xi * totalL;
+        let m = 0;
+        if (loadType === 'distributed') {
+          m = RA * xPos - q * xPos * xPos / 2;
+        } else {
+          const pPos = (a / 100) * totalL;
+          m = xPos <= pPos ? RA * xPos : RA * xPos - P * (xPos - pPos);
+        }
+        path += ` L ${x},${baseY + m * mScale}`;
+      }
+      path += ` L 230,${baseY} Z`;
+      return path;
+    }
     if (loadType === 'point') {
       const loadX = 30 + (a / 100) * 180;
       if (beamType === 'simple') {
@@ -320,6 +432,25 @@ const StaticBeam: React.FC = () => {
   // 剪力图路径
   const getShearPath = () => {
     const baseY = 60;
+    if (beamType === 'overhanging') {
+      const totalL = L + safeOverhang;
+      let path = `M 30,${baseY}`;
+      for (let i = 0; i <= 30; i++) {
+        const xi = i / 30;
+        const x = 30 + xi * 200;
+        const xPos = xi * totalL;
+        let v = 0;
+        if (loadType === 'distributed') {
+          v = RA - q * xPos;
+        } else {
+          const pPos = (a / 100) * totalL;
+          v = xPos < pPos ? RA : RA - P;
+        }
+        path += ` L ${x},${baseY - v * vScale}`;
+      }
+      path += ` L 230,${baseY} Z`;
+      return path;
+    }
     if (loadType === 'point') {
       const loadX = 30 + (a / 100) * 180;
       if (beamType === 'simple') {
@@ -337,59 +468,62 @@ const StaticBeam: React.FC = () => {
   };
 
   return (
-    <div className="flex gap-5 h-full p-5">
-      <div className="flex-1 flex flex-col gap-4 min-w-0">
-        {/* 上：参数 + 结构示意 */}
-        <div className="flex gap-4">
-          <div className="bg-white rounded-2xl border border-slate-200 p-5 w-72 flex-shrink-0 shadow-sm">
-            <h4 className="text-sm font-bold text-slate-800 mb-4">🔧 参数设置</h4>
-            <div className="flex gap-2 mb-3">
-              <button onClick={() => setBeamType('simple')}
-                className={`flex-1 py-2 text-xs font-medium rounded-lg transition-all ${beamType === 'simple' ? 'bg-blue-600 text-white shadow-md' : 'bg-slate-100 hover:bg-slate-200'}`}>简支梁</button>
-              <button onClick={() => setBeamType('cantilever')}
-                className={`flex-1 py-2 text-xs font-medium rounded-lg transition-all ${beamType === 'cantilever' ? 'bg-blue-600 text-white shadow-md' : 'bg-slate-100 hover:bg-slate-200'}`}>悬臂梁</button>
-            </div>
-            <div className="flex gap-2 mb-4">
-              <button onClick={() => setLoadType('point')}
-                className={`flex-1 py-2 text-xs font-medium rounded-lg transition-all ${loadType === 'point' ? 'bg-green-600 text-white shadow-md' : 'bg-slate-100 hover:bg-slate-200'}`}>集中力</button>
-              <button onClick={() => setLoadType('distributed')}
-                className={`flex-1 py-2 text-xs font-medium rounded-lg transition-all ${loadType === 'distributed' ? 'bg-green-600 text-white shadow-md' : 'bg-slate-100 hover:bg-slate-200'}`}>均布荷载</button>
-            </div>
-            <Slider label="跨度 L" value={L} min={4} max={15} unit="m" onChange={setL} />
-            {loadType === 'point' ? (
-              <>
-                <Slider label="集中力 P" value={P} min={5} max={50} unit="kN" onChange={setP} />
-                <Slider label="荷载位置" value={a} min={10} max={90} unit="%" onChange={setA} />
-              </>
-            ) : (
-              <Slider label="均布荷载 q" value={q} min={5} max={30} unit="kN/m" onChange={setQ} />
-            )}
+    <div className="flex flex-col lg:flex-row gap-3 lg:gap-4 min-h-full p-3 lg:p-4">
+      <CollapsiblePanel title="参数" icon="🔧" side="left" storageKey="param-panel-beam">
+        <div className="bg-white rounded-xl border border-slate-200/80 p-3 shadow-sm overflow-y-auto">
+          <h4 className="text-xs font-semibold text-slate-600 mb-2">🔧 参数设置</h4>
+          <div className="flex gap-1.5 mb-2">
+            {(['simple', 'cantilever', 'overhanging'] as const).map(t => (
+              <button key={t} onClick={() => setBeamType(t)}
+                className={`flex-1 py-2 text-xs font-medium rounded-lg transition-all ${beamType === t ? 'bg-blue-600 text-white shadow-md' : 'bg-slate-100 hover:bg-slate-200'}`}>
+                {t === 'simple' ? '简支梁' : t === 'cantilever' ? '悬臂梁' : '外伸梁'}
+              </button>
+            ))}
           </div>
-          
-          {/* 结构示意图 */}
-          <div className="bg-white rounded-2xl border border-slate-200 p-5 flex-1 shadow-sm">
-            <h4 className="text-sm font-bold text-slate-800 mb-3">📐 结构示意</h4>
-            <div className="max-w-lg mx-auto">
-              <svg width="100%" viewBox="0 0 240 110" className="bg-gradient-to-b from-slate-50 to-white rounded-xl">
-                <BeamBase showLoad={true} />
-              </svg>
-            </div>
+          <div className="flex gap-2 mb-4">
+            <button onClick={() => setLoadType('point')}
+              className={`flex-1 py-2 text-xs font-medium rounded-lg transition-all ${loadType === 'point' ? 'bg-green-600 text-white shadow-md' : 'bg-slate-100 hover:bg-slate-200'}`}>集中力</button>
+            <button onClick={() => setLoadType('distributed')}
+              className={`flex-1 py-2 text-xs font-medium rounded-lg transition-all ${loadType === 'distributed' ? 'bg-green-600 text-white shadow-md' : 'bg-slate-100 hover:bg-slate-200'}`}>均布荷载</button>
+          </div>
+          <Slider label="跨度 L" value={L} min={4} max={15} unit="m" onChange={setL} />
+          {beamType === 'overhanging' && (
+            <Slider label="悬臂长度" value={safeOverhang} min={1} max={Math.floor(L / 2)} unit="m" onChange={setOverhang} />
+          )}
+          {loadType === 'point' ? (
+            <>
+              <Slider label="集中力 P" value={P} min={5} max={50} unit="kN" onChange={setP} />
+              <Slider label="荷载位置" value={a} min={10} max={90} unit="%" onChange={setA} />
+            </>
+          ) : (
+            <Slider label="均布荷载 q" value={q} min={5} max={30} unit="kN/m" onChange={setQ} />
+          )}
+        </div>
+      </CollapsiblePanel>
+      <div className="flex-1 flex flex-col gap-2 lg:gap-3 min-w-0">
+        {/* 结构示意图 */}
+        <div className="bg-white rounded-xl border border-slate-200/80 p-4 shadow-sm">
+          <h4 className="text-xs font-semibold text-slate-600 mb-2">📐 结构示意</h4>
+          <div className="mx-auto">
+            <svg width="100%" viewBox="0 0 250 110" className="bg-gradient-to-b from-slate-50 to-white rounded-xl">
+              <BeamBase showLoad={true} />
+            </svg>
           </div>
         </div>
 
         {/* 中：两个内力图并排 */}
-        <div className="flex gap-4">
+        <div className="flex flex-col md:flex-row gap-2 md:gap-3">
           {/* 弯矩图 M */}
-          <div className="bg-white rounded-2xl border border-slate-200 p-4 flex-1 shadow-sm">
-            <h4 className="text-xs font-bold text-slate-800 mb-2">弯矩图 M (kN·m)</h4>
-            <div className="max-w-md mx-auto">
-              <svg width="100%" viewBox="0 0 240 110" className="bg-gradient-to-b from-slate-50 to-white rounded-lg">
+          <div className="bg-white rounded-xl border border-slate-200/80 p-4 flex-1 shadow-sm">
+            <h4 className="text-xs font-semibold text-slate-600 mb-1">弯矩图 M | Mmax={Mmax.toFixed(1)} kN·m</h4>
+            <div className="mx-auto">
+              <svg width="100%" viewBox="0 0 250 110" className="bg-gradient-to-b from-slate-50 to-white rounded-lg">
               <BeamBase showLoad={false} />
               <path d={getMomentPath()} fill="#ef4444" fillOpacity="0.2" stroke="#ef4444" strokeWidth="1.5" />
-              {loadType === 'point' ? (
+              {loadType === 'point' && beamType !== 'overhanging' ? (
                 <text x={30 + (a/100) * 180} y={beamType === 'simple' ? 60 + Mmax * mScale + 12 : 60 - Mmax * mScale - 5} 
                   className="text-[10px] fill-red-700 font-bold" textAnchor="middle">{Mmax.toFixed(1)}</text>
-              ) : (
+              ) : beamType !== 'overhanging' && (
                 <text x="120" y={beamType === 'simple' ? 60 + Mmax * mScale + 12 : 60 - Mmax * mScale - 5} 
                   className="text-[10px] fill-red-700 font-bold" textAnchor="middle">{Mmax.toFixed(1)}</text>
               )}
@@ -398,45 +532,45 @@ const StaticBeam: React.FC = () => {
           </div>
           
           {/* 剪力图 V */}
-          <div className="bg-white rounded-2xl border border-slate-200 p-4 flex-1 shadow-sm">
-            <h4 className="text-xs font-bold text-slate-800 mb-2">剪力图 V (kN)</h4>
-            <div className="max-w-md mx-auto">
-              <svg width="100%" viewBox="0 0 240 110" className="bg-gradient-to-b from-slate-50 to-white rounded-lg">
+          <div className="bg-white rounded-xl border border-slate-200/80 p-4 flex-1 shadow-sm">
+            <h4 className="text-xs font-semibold text-slate-600 mb-1">剪力图 V | Vmax={Vmax.toFixed(1)} kN</h4>
+            <div className="mx-auto">
+              <svg width="100%" viewBox="0 0 250 110" className="bg-gradient-to-b from-slate-50 to-white rounded-lg">
                 <BeamBase showLoad={false} />
                 <path d={getShearPath()} fill="#10b981" fillOpacity="0.2" stroke="#10b981" strokeWidth="1.5" />
-                <text x="40" y={beamType === 'simple' ? 60 - RA * vScale - 5 : 60 + RA * vScale + 12} 
-                  className="text-[10px] fill-green-700 font-bold">{beamType === 'simple' ? RA.toFixed(1) : (-RA).toFixed(1)}</text>
-                {beamType === 'simple' && (
-                  <text x="200" y={60 + RB * vScale + 12} 
-                    className="text-[10px] fill-green-700 font-bold" textAnchor="end">{(-RB).toFixed(1)}</text>
+                {beamType !== 'overhanging' && (
+                  <>
+                    <text x="40" y={beamType === 'simple' ? 60 - RA * vScale - 5 : 60 + RA * vScale + 12} 
+                      className="text-[10px] fill-green-700 font-bold">{beamType === 'simple' ? RA.toFixed(1) : (-RA).toFixed(1)}</text>
+                    {beamType === 'simple' && (
+                      <text x="200" y={60 + RB * vScale + 12} 
+                        className="text-[10px] fill-green-700 font-bold" textAnchor="end">{(-RB).toFixed(1)}</text>
+                    )}
+                  </>
                 )}
               </svg>
             </div>
           </div>
         </div>
 
-        {/* 下：结果 + 公式（上下排列） */}
-        <div className="flex flex-col gap-4">
-          <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
-            <h4 className="text-sm font-bold text-slate-800 mb-3">Σ 计算结果</h4>
-            <div className="flex gap-3">
-              <ResultCard label="RA" value={RA.toFixed(1)} unit="kN" color="blue" />
-              <ResultCard label="RB" value={beamType === 'simple' ? RB.toFixed(1) : '-'} unit="kN" color="blue" />
-              <ResultCard label="Mmax" value={Mmax.toFixed(1)} unit="kN·m" color="red" />
-              <ResultCard label="Vmax" value={Vmax.toFixed(1)} unit="kN" color="green" />
-            </div>
-          </div>
-          <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
-            <h4 className="text-sm font-bold text-slate-800 mb-3">📖 核心公式</h4>
-            <div className="text-sm text-slate-600 font-serif">{formula}</div>
+        {/* 下：结果 */}
+        <div className="bg-white rounded-xl border border-slate-200/80 p-4 shadow-sm">
+          <h4 className="text-xs font-semibold text-slate-600 mb-2">Σ 计算结果</h4>
+          <div className="flex flex-wrap gap-2 md:gap-3">
+            <ResultCard label="RA" value={RA.toFixed(1)} unit="kN" color="blue" />
+            <ResultCard label="RB" value={beamType === 'cantilever' ? '-' : RB.toFixed(1)} unit="kN" color="blue" />
+            <ResultCard label="Mmax" value={Mmax.toFixed(1)} unit="kN·m" color="red" />
+            <ResultCard label="Vmax" value={Vmax.toFixed(1)} unit="kN" color="green" />
           </div>
         </div>
+        {/* 求解过程 */}
+        <SolutionSteps steps={solveSteps} title="求解过程" />
       </div>
 
-      <div className="w-80 flex-shrink-0">
+      <CollapsiblePanel title="AI助手" icon="🤖" side="right" storageKey="ai-panel-beam">
         <AITutor context={context} moduleTitle="静定梁"
-          suggestedQuestions={['均布荷载弯矩图为什么是抛物线？', '集中力和均布荷载哪个更危险？', '剪力图斜率代表什么？']} />
-      </div>
+          suggestedQuestions={['均布荷载弯矩图为什么是抛物线？', '外伸梁反力可能向下吗？', '剪力图斜率代表什么？']} />
+      </CollapsiblePanel>
     </div>
   );
 };
@@ -480,6 +614,14 @@ const StaticFrame: React.FC = () => {
 
   const context = `门式刚架, L=${L}m, H=${H}m, P=${P}kN(位置${hPos}%), q=${q}kN/m`;
 
+  const solveSteps = useMemo(() => [
+    { title: 'ΣFx=0 → FxB', equation: `FxB = P = ${P}`, result: `${FxB.toFixed(2)} kN` },
+    { title: 'ΣMA=0 → FyB', equation: `FyB×${L} = qL²/2 − P×h = ${q}×${L}²/2 − ${P}×${hLoad.toFixed(1)}`, result: `${FyB.toFixed(2)} kN` },
+    { title: 'ΣFy=0 → FyA', equation: `FyA = qL − FyB = ${q}×${L} − ${FyB.toFixed(1)}`, result: `${FyA.toFixed(2)} kN` },
+    { title: '柱顶弯矩 ME', equation: `ME = P×h = ${P}×${hLoad.toFixed(1)}`, result: `${M_E.toFixed(2)} kN·m`, explanation: '截面法，取左柱E截面' },
+    { title: '梁跨中弯矩', equation: `M_mid = ME − FyA×L/2 + qL²/8`, result: `${M_mid.toFixed(2)} kN·m` },
+  ], [L, H, P, q, hLoad, FxB, FyA, FyB, M_E, M_mid]);
+
   // 绘制刚架基础结构的SVG组件 - 紧凑版
   const FrameBase = () => (
     <>
@@ -497,23 +639,22 @@ const StaticFrame: React.FC = () => {
   );
 
   return (
-    <div className="flex gap-5 h-full p-5">
-      <div className="flex-1 flex flex-col gap-4 min-w-0">
-        {/* 上：参数 + 结构示意 */}
-        <div className="flex gap-4">
-          <div className="bg-white rounded-2xl border border-slate-200 p-5 w-72 flex-shrink-0 shadow-sm">
-            <h4 className="text-sm font-bold text-slate-800 mb-4">🔧 参数设置</h4>
-            <Slider label="跨度 L" value={L} min={4} max={12} unit="m" onChange={setL} />
-            <Slider label="柱高 H" value={H} min={3} max={10} unit="m" onChange={setH} />
-            <Slider label="水平力 P" value={P} min={5} max={30} unit="kN" onChange={setP} />
-            <Slider label="水平力位置" value={hPos} min={10} max={100} unit="%" onChange={setHPos} />
-            <Slider label="均布荷载 q" value={q} min={10} max={40} unit="kN/m" onChange={setQ} />
-          </div>
-          
-          {/* 结构示意图 */}
-          <div className="bg-white rounded-2xl border border-slate-200 p-4 flex-1 shadow-sm">
-            <h4 className="text-sm font-bold text-slate-800 mb-2">📐 结构示意</h4>
-            <div className="max-w-lg mx-auto">
+    <div className="flex flex-col lg:flex-row gap-3 lg:gap-4 min-h-full p-3 lg:p-4">
+      <CollapsiblePanel title="参数" icon="🔧" side="left" storageKey="param-panel-frame">
+        <div className="bg-white rounded-xl border border-slate-200/80 p-3 shadow-sm overflow-y-auto">
+          <h4 className="text-xs font-semibold text-slate-600 mb-2">🔧 参数设置</h4>
+          <Slider label="跨度 L" value={L} min={4} max={12} unit="m" onChange={setL} />
+          <Slider label="柱高 H" value={H} min={3} max={10} unit="m" onChange={setH} />
+          <Slider label="水平力 P" value={P} min={5} max={30} unit="kN" onChange={setP} />
+          <Slider label="水平力位置" value={hPos} min={10} max={100} unit="%" onChange={setHPos} />
+          <Slider label="均布荷载 q" value={q} min={10} max={40} unit="kN/m" onChange={setQ} />
+        </div>
+      </CollapsiblePanel>
+      <div className="flex-1 flex flex-col gap-2 lg:gap-3 min-w-0">
+        {/* 结构示意图 */}
+        <div className="bg-white rounded-xl border border-slate-200/80 p-4 shadow-sm">
+          <h4 className="text-xs font-semibold text-slate-600 mb-2">📐 结构示意</h4>
+            <div className="mx-auto">
               <svg width="100%" viewBox="0 0 170 110" className="bg-gradient-to-b from-slate-50 to-white rounded-xl">
                 <FrameBase />
                 {/* 水平力P - 位置根据hPos动态变化 */}
@@ -539,15 +680,14 @@ const StaticFrame: React.FC = () => {
                 <text x="85" y="108" className="text-[8px] fill-slate-500" textAnchor="middle">L={L}m, H={H}m</text>
               </svg>
             </div>
-          </div>
         </div>
 
         {/* 中：三个内力图并排 */}
-        <div className="flex gap-4">
+        <div className="flex flex-col md:flex-row gap-2 md:gap-3">
           {/* 弯矩图 M */}
-          <div className="bg-white rounded-2xl border border-slate-200 p-3 flex-1 shadow-sm">
-            <h4 className="text-xs font-bold text-slate-800 mb-1">弯矩图 M (kN·m)</h4>
-            <div className="max-w-md mx-auto">
+          <div className="bg-white rounded-xl border border-slate-200/80 p-3 flex-1 shadow-sm">
+            <h4 className="text-xs font-semibold text-slate-600 mb-1">弯矩图 M (kN·m)</h4>
+            <div className="mx-auto">
               <svg width="100%" viewBox="0 0 170 110" className="bg-gradient-to-b from-slate-50 to-white rounded-lg">
                 <FrameBase />
                 {/* 弯矩图 */}
@@ -565,9 +705,9 @@ const StaticFrame: React.FC = () => {
           </div>
           
           {/* 剪力图 Q */}
-          <div className="bg-white rounded-2xl border border-slate-200 p-3 flex-1 shadow-sm">
-            <h4 className="text-xs font-bold text-slate-800 mb-1">剪力图 Q (kN)</h4>
-            <div className="max-w-md mx-auto">
+          <div className="bg-white rounded-xl border border-slate-200/80 p-3 flex-1 shadow-sm">
+            <h4 className="text-xs font-semibold text-slate-600 mb-1">剪力图 Q (kN)</h4>
+            <div className="mx-auto">
               <svg width="100%" viewBox="0 0 170 110" className="bg-gradient-to-b from-slate-50 to-white rounded-lg">
                 <FrameBase />
                 {/* 剪力图 */}
@@ -585,9 +725,9 @@ const StaticFrame: React.FC = () => {
           </div>
           
           {/* 轴力图 N */}
-          <div className="bg-white rounded-2xl border border-slate-200 p-3 flex-1 shadow-sm">
-            <h4 className="text-xs font-bold text-slate-800 mb-1">轴力图 N (kN)</h4>
-            <div className="max-w-md mx-auto">
+          <div className="bg-white rounded-xl border border-slate-200/80 p-3 flex-1 shadow-sm">
+            <h4 className="text-xs font-semibold text-slate-600 mb-1">轴力图 N (kN)</h4>
+            <div className="mx-auto">
               <svg width="100%" viewBox="0 0 170 110" className="bg-gradient-to-b from-slate-50 to-white rounded-lg">
                 <FrameBase />
                 {/* 轴力图 */}
@@ -605,33 +745,24 @@ const StaticFrame: React.FC = () => {
           </div>
         </div>
 
-        {/* 下：结果 + 特点（上下排列） */}
-        <div className="flex flex-col gap-4">
-          <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
-            <h4 className="text-sm font-bold text-slate-800 mb-3">Σ 计算结果</h4>
-            <div className="flex gap-3 flex-wrap">
-              <ResultCard label="FyA" value={FyA.toFixed(1)} unit="kN" color="blue" />
-              <ResultCard label="FyB" value={FyB.toFixed(1)} unit="kN" color="blue" />
-              <ResultCard label="FxB" value={FxB.toFixed(1)} unit="kN" color="blue" />
-              <ResultCard label="ME" value={M_E.toFixed(1)} unit="kN·m" color="red" />
-              <ResultCard label="M跨中" value={M_mid.toFixed(1)} unit="kN·m" color="red" />
-            </div>
-          </div>
-          <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
-            <h4 className="text-sm font-bold text-slate-800 mb-3">📖 分析要点</h4>
-            <div className="text-sm text-slate-600 space-y-1.5">
-              <div>• 先求支座反力（整体平衡）</div>
-              <div>• 用截面法求各截面内力</div>
-              <div>• 弯矩图画在受拉侧</div>
-            </div>
+        {/* 下：结果 */}
+        <div className="bg-white rounded-xl border border-slate-200/80 p-4 shadow-sm">
+          <h4 className="text-xs font-semibold text-slate-600 mb-2">Σ 计算结果</h4>
+          <div className="flex flex-wrap gap-2 md:gap-3">
+            <ResultCard label="FyA" value={FyA.toFixed(1)} unit="kN" color="blue" />
+            <ResultCard label="FyB" value={FyB.toFixed(1)} unit="kN" color="blue" />
+            <ResultCard label="FxB" value={FxB.toFixed(1)} unit="kN" color="blue" />
+            <ResultCard label="ME" value={M_E.toFixed(1)} unit="kN·m" color="red" />
+            <ResultCard label="M跨中" value={M_mid.toFixed(1)} unit="kN·m" color="red" />
           </div>
         </div>
+        <SolutionSteps steps={solveSteps} title="求解过程" />
       </div>
 
-      <div className="w-80 flex-shrink-0">
+      <CollapsiblePanel title="AI助手" icon="🤖" side="right" storageKey="ai-panel-frame">
         <AITutor context={context} moduleTitle="静定刚架"
           suggestedQuestions={['刚架弯矩图怎么画？', '如何判断受拉侧？', '刚架与梁有什么区别？']} />
-      </div>
+      </CollapsiblePanel>
     </div>
   );
 };
@@ -654,6 +785,14 @@ const StaticTruss: React.FC = () => {
   const N_diag2 = -RA / sinA; // 中斜杆（压）
 
   const context = `Warren桁架, P=${P}kN, 下弦(拉)=${N_bottom.toFixed(1)}kN, 上弦(压)=${N_top.toFixed(1)}kN`;
+
+  const solveSteps = useMemo(() => [
+    { title: '对称性求反力', equation: `RA = RB = P/2 = ${P}/2`, result: `${RA.toFixed(1)} kN`, explanation: '对称结构 + 对称荷载' },
+    { title: '截面法：截断1-1', equation: `ΣMC=0: N_底×H = RA×(L/4)`, result: `N_底 = +${N_bottom.toFixed(1)} kN (拉)`, explanation: '对上弦节点C取矩' },
+    { title: '截面法：截断1-1', equation: `ΣME=0: N_顶×H = −RA×(L/4)`, result: `N_顶 = ${N_top.toFixed(1)} kN (压)` },
+    { title: '节点法：节点A', equation: `ΣFy=0: N_斜×sinα = RA`, result: `N_斜 = +${N_diag1.toFixed(1)} kN (拉)`, explanation: `sinα = ${sinA.toFixed(3)}, 斜杆角度 = ${(Math.atan2(H, L/4) * 180 / Math.PI).toFixed(1)}°` },
+    { title: '节点法：节点C', result: `N_中斜 = ${N_diag2.toFixed(1)} kN (压)`, explanation: '中间斜杆受压，对称' },
+  ], [P, RA, N_bottom, N_top, N_diag1, N_diag2, sinA, H, L]);
 
   // 桁架基础结构组件 - 紧凑版
   const TrussBase = ({ showLoad = true }: { showLoad?: boolean }) => (
@@ -690,45 +829,41 @@ const StaticTruss: React.FC = () => {
   );
 
   return (
-    <div className="flex gap-5 h-full p-5">
-      <div className="flex-1 flex flex-col gap-4 min-w-0">
-        {/* 上：参数 + 结构示意 */}
-        <div className="flex gap-4">
-          <div className="bg-white rounded-2xl border border-slate-200 p-5 w-72 flex-shrink-0 shadow-sm">
-            <h4 className="text-sm font-bold text-slate-800 mb-4">🔧 参数设置</h4>
-            <Slider label="节点荷载 P" value={P} min={20} max={100} unit="kN" onChange={setP} />
-            <div className="mt-4 p-3 bg-gradient-to-br from-slate-50 to-white rounded-xl text-sm text-slate-600 border border-slate-100">
-              <div>桁架跨度: {L}m</div>
-              <div>桁架高度: {H}m</div>
-            </div>
-            
-            <div className="mt-4 pt-4 border-t border-slate-100">
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input type="checkbox" checked={showAxial} onChange={(e) => setShowAxial(e.target.checked)} 
-                  className="w-4 h-4 rounded border-slate-300" />
-                <span className="text-sm text-slate-700">显示轴力值</span>
-              </label>
-            </div>
+    <div className="flex flex-col lg:flex-row gap-3 lg:gap-4 min-h-full p-3 lg:p-4">
+      <CollapsiblePanel title="参数" icon="🔧" side="left" storageKey="param-panel-truss">
+        <div className="bg-white rounded-xl border border-slate-200/80 p-3 shadow-sm overflow-y-auto">
+          <h4 className="text-xs font-semibold text-slate-600 mb-2">🔧 参数设置</h4>
+          <Slider label="节点荷载 P" value={P} min={20} max={100} unit="kN" onChange={setP} />
+          <div className="mt-4 p-3 bg-gradient-to-br from-slate-50 to-white rounded-xl text-sm text-slate-600 border border-slate-100">
+            <div>桁架跨度: {L}m</div>
+            <div>桁架高度: {H}m</div>
           </div>
-          
-          {/* 结构示意图 */}
-          <div className="bg-white rounded-2xl border border-slate-200 p-4 flex-1 shadow-sm">
-            <h4 className="text-sm font-bold text-slate-800 mb-2">📐 结构示意</h4>
-            <div className="max-w-lg mx-auto">
-              <svg width="100%" viewBox="0 0 200 90" className="bg-gradient-to-b from-slate-50 to-white rounded-xl">
-                <TrussBase showLoad={true} />
-                <text x="100" y="88" className="text-[8px] fill-slate-500" textAnchor="middle">L={L}m, H={H}m</text>
-              </svg>
-            </div>
+          <div className="mt-4 pt-4 border-t border-slate-100">
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input type="checkbox" checked={showAxial} onChange={(e) => setShowAxial(e.target.checked)} 
+                className="w-4 h-4 rounded border-slate-300" />
+              <span className="text-sm text-slate-700">显示轴力值</span>
+            </label>
+          </div>
+        </div>
+      </CollapsiblePanel>
+      <div className="flex-1 flex flex-col gap-2 lg:gap-3 min-w-0">
+        <div className="bg-white rounded-xl border border-slate-200/80 p-4 shadow-sm">
+          <h4 className="text-xs font-semibold text-slate-600 mb-2">📐 结构示意</h4>
+          <div className="mx-auto">
+            <svg width="100%" viewBox="0 0 200 90" className="bg-gradient-to-b from-slate-50 to-white rounded-xl">
+              <TrussBase showLoad={true} />
+              <text x="100" y="88" className="text-[8px] fill-slate-500" textAnchor="middle">L={L}m, H={H}m</text>
+            </svg>
           </div>
         </div>
 
         {/* 中：三个轴力图并排（桁架只有轴力） */}
-        <div className="flex gap-4">
+        <div className="flex flex-col md:flex-row gap-2 md:gap-3">
           {/* 下弦杆轴力 */}
-          <div className="bg-white rounded-2xl border border-slate-200 p-3 flex-1 shadow-sm">
-            <h4 className="text-xs font-bold text-slate-800 mb-1">下弦杆 N (拉力)</h4>
-            <div className="max-w-md mx-auto">
+          <div className="bg-white rounded-xl border border-slate-200/80 p-3 flex-1 shadow-sm">
+            <h4 className="text-xs font-semibold text-slate-600 mb-1">下弦杆 N (拉力)</h4>
+            <div className="mx-auto">
               <svg width="100%" viewBox="0 0 200 90" className="bg-gradient-to-b from-slate-50 to-white rounded-lg">
                 <TrussBase showLoad={false} />
                 {/* 高亮下弦杆 */}
@@ -747,9 +882,9 @@ const StaticTruss: React.FC = () => {
           </div>
           
           {/* 上弦杆轴力 */}
-          <div className="bg-white rounded-2xl border border-slate-200 p-3 flex-1 shadow-sm">
-            <h4 className="text-xs font-bold text-slate-800 mb-1">上弦杆 N (压力)</h4>
-            <div className="max-w-md mx-auto">
+          <div className="bg-white rounded-xl border border-slate-200/80 p-3 flex-1 shadow-sm">
+            <h4 className="text-xs font-semibold text-slate-600 mb-1">上弦杆 N (压力)</h4>
+            <div className="mx-auto">
               <svg width="100%" viewBox="0 0 200 90" className="bg-gradient-to-b from-slate-50 to-white rounded-lg">
                 <TrussBase showLoad={false} />
                 {/* 高亮上弦杆 */}
@@ -766,9 +901,9 @@ const StaticTruss: React.FC = () => {
           </div>
           
           {/* 斜杆轴力 */}
-          <div className="bg-white rounded-2xl border border-slate-200 p-3 flex-1 shadow-sm">
-            <h4 className="text-xs font-bold text-slate-800 mb-1">斜杆 N (拉/压)</h4>
-            <div className="max-w-md mx-auto">
+          <div className="bg-white rounded-xl border border-slate-200/80 p-3 flex-1 shadow-sm">
+            <h4 className="text-xs font-semibold text-slate-600 mb-1">斜杆 N (拉/压)</h4>
+            <div className="mx-auto">
               <svg width="100%" viewBox="0 0 200 90" className="bg-gradient-to-b from-slate-50 to-white rounded-lg">
                 <TrussBase showLoad={false} />
                 {/* 高亮斜杆 - 拉力绿色，压力橙色 */}
@@ -797,31 +932,27 @@ const StaticTruss: React.FC = () => {
           </div>
         </div>
 
-        {/* 下：结果 + 方法（上下排列） */}
-        <div className="flex flex-col gap-4">
-          <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
-            <h4 className="text-sm font-bold text-slate-800 mb-3">Σ 计算结果</h4>
-            <div className="flex gap-3">
-              <ResultCard label="下弦(拉)" value={`+${N_bottom.toFixed(1)}`} unit="kN" color="blue" />
-              <ResultCard label="上弦(压)" value={N_top.toFixed(1)} unit="kN" color="red" />
-              <ResultCard label="斜杆" value={`±${Math.abs(N_diag1).toFixed(1)}`} unit="kN" color="green" />
-              <ResultCard label="支座反力" value={RA.toFixed(1)} unit="kN" color="purple" />
-            </div>
+        {/* 下：结果 */}
+        <div className="bg-white rounded-xl border border-slate-200/80 p-4 shadow-sm">
+          <h4 className="text-xs font-semibold text-slate-600 mb-2">Σ 计算结果</h4>
+          <div className="flex flex-wrap gap-2 md:gap-3">
+            <ResultCard label="下弦(拉)" value={`+${N_bottom.toFixed(1)}`} unit="kN" color="blue" />
+            <ResultCard label="上弦(压)" value={N_top.toFixed(1)} unit="kN" color="red" />
+            <ResultCard label="斜杆" value={`±${Math.abs(N_diag1).toFixed(1)}`} unit="kN" color="green" />
+            <ResultCard label="支座反力" value={RA.toFixed(1)} unit="kN" color="purple" />
           </div>
-          <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
-            <h4 className="text-sm font-bold text-slate-800 mb-3">📖 分析方法</h4>
-            <div className="flex gap-3">
-              <FormulaCard title="节点法" formula="ΣF=0" desc="逐个节点求解" />
-              <FormulaCard title="截面法" formula="ΣM=0" desc="截断≤3根杆" />
-            </div>
+          <div className="flex gap-3 mt-3">
+            <FormulaCard title="节点法" formula="ΣF=0" desc="逐个节点求解" />
+            <FormulaCard title="截面法" formula="ΣM=0" desc="截断≤3根杆" />
           </div>
         </div>
+        <SolutionSteps steps={solveSteps} title="求解过程" />
       </div>
 
-      <div className="w-80 flex-shrink-0">
+      <CollapsiblePanel title="AI助手" icon="🤖" side="right" storageKey="ai-panel-truss">
         <AITutor context={context} moduleTitle="静定桁架"
           suggestedQuestions={['为什么桁架没有弯矩？', '节点法和截面法怎么选？', '什么是零杆？']} />
-      </div>
+      </CollapsiblePanel>
     </div>
   );
 };
@@ -851,6 +982,15 @@ const StaticArch: React.FC = () => {
 
   const context = `三铰拱, L=${L}m, f=${f}m, q=${q}kN/m, R=${RA.toFixed(1)}kN, H=${H_thrust.toFixed(1)}kN`;
 
+  const solveSteps = useMemo(() => [
+    { title: '对称性求竖向反力', equation: `RA = RB = qL/2 = ${q}×${L}/2`, result: `${RA.toFixed(2)} kN` },
+    { title: '铰C条件求水平推力', equation: `MC=0: H×f = qL²/8 → H = qL²/(8f)`, result: `${H_thrust.toFixed(2)} kN`, explanation: '三铰拱的关键方程：利用拱顶铰弯矩为零' },
+    { title: '简支梁弯矩（对比）', equation: `M_梁 = qL²/8 = ${q}×${L}²/8`, result: `${Mmax_beam.toFixed(1)} kN·m` },
+    { title: '拱弯矩 M = M_梁 − Hy', equation: `当y = 合理拱轴线时, M ≈ 0`, result: '弯矩几乎为零', explanation: '均布荷载下二次抛物线拱的弯矩恒为零' },
+    { title: '拱顶轴力', equation: `N_拱顶 = −H = −${H_thrust.toFixed(1)}`, result: `${N_crown.toFixed(1)} kN (压)` },
+    { title: '拱脚轴力', result: `${N_support.toFixed(1)} kN (压)`, explanation: '拱脚处斜率最大，轴力最大' },
+  ], [L, f, q, RA, H_thrust, Mmax_beam, N_crown, N_support]);
+
   // 拱基础结构组件 - 紧凑版
   // 二次贝塞尔曲线 Q 的中点 y = (P0.y + P2.y)/2 + (P1.y - (P0.y + P2.y)/2)/2 = 75 + (25-75)/2 = 50
   const ArchBase = ({ showLoad = true }: { showLoad?: boolean }) => (
@@ -875,37 +1015,34 @@ const StaticArch: React.FC = () => {
   );
 
   return (
-    <div className="flex gap-5 h-full p-5">
-      <div className="flex-1 flex flex-col gap-4 min-w-0">
-        {/* 上：参数 + 结构示意 */}
-        <div className="flex gap-4">
-          <div className="bg-white rounded-2xl border border-slate-200 p-5 w-72 flex-shrink-0 shadow-sm">
-            <h4 className="text-sm font-bold text-slate-800 mb-4">🔧 参数设置</h4>
-            <Slider label="跨度 L" value={L} min={10} max={40} unit="m" onChange={setL} />
-            <Slider label="矢高 f" value={f} min={2} max={10} unit="m" onChange={setF} />
-            <Slider label="均布荷载 q" value={q} min={5} max={30} unit="kN/m" onChange={setQ} />
-          </div>
-          
-          <div className="bg-white rounded-2xl border border-slate-200 p-4 flex-1 shadow-sm">
-            <h4 className="text-sm font-bold text-slate-800 mb-2">📐 结构示意</h4>
-            <div className="max-w-lg mx-auto">
-              <svg width="100%" viewBox="0 0 200 100" className="bg-gradient-to-b from-slate-50 to-white rounded-xl">
-                <ArchBase showLoad={true} />
-                {/* 标注矢高f */}
-                <line x1="100" y1="22" x2="100" y2="75" stroke="#94a3b8" strokeWidth="1" strokeDasharray="3" />
-                <text x="108" y="50" className="text-[7px] fill-slate-400">f</text>
-                <text x="100" y="98" className="text-[8px] fill-slate-500" textAnchor="middle">L={L}m, f={f}m</text>
-              </svg>
-            </div>
+    <div className="flex flex-col lg:flex-row gap-3 lg:gap-4 min-h-full p-3 lg:p-4">
+      <CollapsiblePanel title="参数" icon="🔧" side="left" storageKey="param-panel-arch">
+        <div className="bg-white rounded-xl border border-slate-200/80 p-3 shadow-sm overflow-y-auto">
+          <h4 className="text-xs font-semibold text-slate-600 mb-2">🔧 参数设置</h4>
+          <Slider label="跨度 L" value={L} min={10} max={40} unit="m" onChange={setL} />
+          <Slider label="矢高 f" value={f} min={2} max={10} unit="m" onChange={setF} />
+          <Slider label="均布荷载 q" value={q} min={5} max={30} unit="kN/m" onChange={setQ} />
+        </div>
+      </CollapsiblePanel>
+      <div className="flex-1 flex flex-col gap-2 lg:gap-3 min-w-0">
+        <div className="bg-white rounded-xl border border-slate-200/80 p-4 shadow-sm">
+          <h4 className="text-xs font-semibold text-slate-600 mb-2">📐 结构示意</h4>
+          <div className="mx-auto">
+            <svg width="100%" viewBox="0 0 200 100" className="bg-gradient-to-b from-slate-50 to-white rounded-xl">
+              <ArchBase showLoad={true} />
+              <line x1="100" y1="22" x2="100" y2="75" stroke="#94a3b8" strokeWidth="1" strokeDasharray="3" />
+              <text x="108" y="50" className="text-[7px] fill-slate-400">f</text>
+              <text x="100" y="98" className="text-[8px] fill-slate-500" textAnchor="middle">L={L}m, f={f}m</text>
+            </svg>
           </div>
         </div>
 
         {/* 中：三个内力图并排 */}
-        <div className="flex gap-4">
+        <div className="flex flex-col md:flex-row gap-2 md:gap-3">
           {/* 弯矩图 M */}
-          <div className="bg-white rounded-2xl border border-slate-200 p-3 flex-1 shadow-sm">
-            <h4 className="text-xs font-bold text-slate-800 mb-1">弯矩图 M (kN·m)</h4>
-            <div className="max-w-md mx-auto">
+          <div className="bg-white rounded-xl border border-slate-200/80 p-3 flex-1 shadow-sm">
+            <h4 className="text-xs font-semibold text-slate-600 mb-1">弯矩图 M (kN·m)</h4>
+            <div className="mx-auto">
               <svg width="100%" viewBox="0 0 200 100" className="bg-gradient-to-b from-slate-50 to-white rounded-lg">
                 <ArchBase showLoad={false} />
                 {/* 弯矩为0的高亮显示 */}
@@ -918,9 +1055,9 @@ const StaticArch: React.FC = () => {
           </div>
           
           {/* 轴力图 N */}
-          <div className="bg-white rounded-2xl border border-slate-200 p-3 flex-1 shadow-sm">
-            <h4 className="text-xs font-bold text-slate-800 mb-1">轴力图 N (kN)</h4>
-            <div className="max-w-md mx-auto">
+          <div className="bg-white rounded-xl border border-slate-200/80 p-3 flex-1 shadow-sm">
+            <h4 className="text-xs font-semibold text-slate-600 mb-1">轴力图 N (kN)</h4>
+            <div className="mx-auto">
               <svg width="100%" viewBox="0 0 200 100" className="bg-gradient-to-b from-slate-50 to-white rounded-lg">
                 <ArchBase showLoad={false} />
                 {/* 轴力分布曲线 */}
@@ -937,9 +1074,9 @@ const StaticArch: React.FC = () => {
           </div>
           
           {/* 对比图 */}
-          <div className="bg-white rounded-2xl border border-slate-200 p-3 flex-1 shadow-sm">
-            <h4 className="text-xs font-bold text-slate-800 mb-1">与简支梁对比</h4>
-            <div className="max-w-md mx-auto">
+          <div className="bg-white rounded-xl border border-slate-200/80 p-3 flex-1 shadow-sm">
+            <h4 className="text-xs font-semibold text-slate-600 mb-1">与简支梁对比</h4>
+            <div className="mx-auto">
               <svg width="100%" viewBox="0 0 200 100" className="bg-gradient-to-b from-slate-50 to-white rounded-lg">
                 <ArchBase showLoad={false} />
                 {/* 简支梁弯矩图 */}
@@ -954,35 +1091,26 @@ const StaticArch: React.FC = () => {
           </div>
         </div>
 
-        {/* 下：结果 + 公式（上下排列） */}
-        <div className="flex flex-col gap-4">
-          <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
-            <h4 className="text-sm font-bold text-slate-800 mb-3">Σ 计算结果</h4>
-            <div className="flex gap-3 mb-3">
-              <ResultCard label="竖向反力R" value={RA.toFixed(1)} unit="kN" color="blue" />
-              <ResultCard label="水平推力H" value={H_thrust.toFixed(1)} unit="kN" color="red" />
-              <ResultCard label="拱顶轴力" value={N_crown.toFixed(0)} unit="kN" color="purple" />
-              <ResultCard label="拱脚轴力" value={N_support.toFixed(0)} unit="kN" color="purple" />
-            </div>
-            <div className="bg-gradient-to-r from-green-50 to-emerald-50 p-3 rounded-xl border border-green-200 text-center text-sm text-green-800">
-              🎉 合理拱轴线使弯矩减少 <strong className="text-lg">{reduction}%</strong>，主要承受轴压
-            </div>
+        {/* 下：结果 */}
+        <div className="bg-white rounded-xl border border-slate-200/80 p-4 shadow-sm">
+          <h4 className="text-xs font-semibold text-slate-600 mb-2">Σ 计算结果</h4>
+          <div className="flex flex-wrap gap-2 md:gap-3 mb-3">
+            <ResultCard label="竖向反力R" value={RA.toFixed(1)} unit="kN" color="blue" />
+            <ResultCard label="水平推力H" value={H_thrust.toFixed(1)} unit="kN" color="red" />
+            <ResultCard label="拱顶轴力" value={N_crown.toFixed(0)} unit="kN" color="purple" />
+            <ResultCard label="拱脚轴力" value={N_support.toFixed(0)} unit="kN" color="purple" />
           </div>
-          <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
-            <h4 className="text-sm font-bold text-slate-800 mb-3">📖 三铰拱公式</h4>
-            <div className="text-sm text-slate-600 space-y-2 font-serif">
-              <div>H = qL²/(8f)</div>
-              <div>R = qL/2</div>
-              <div>M = M<sub>梁</sub> - Hy</div>
-            </div>
+          <div className="bg-gradient-to-r from-green-50 to-emerald-50 p-3 rounded-xl border border-green-200 text-center text-sm text-green-800">
+            合理拱轴线使弯矩减少 <strong className="text-lg">{reduction}%</strong>，主要承受轴压
           </div>
         </div>
+        <SolutionSteps steps={solveSteps} title="求解过程" />
       </div>
 
-      <div className="w-80 flex-shrink-0">
+      <CollapsiblePanel title="AI助手" icon="🤖" side="right" storageKey="ai-panel-arch">
         <AITutor context={context} moduleTitle="静定拱"
           suggestedQuestions={['为什么拱能减小弯矩？', '什么是合理拱轴线？', '矢跨比如何影响推力？']} />
-      </div>
+      </CollapsiblePanel>
     </div>
   );
 };
@@ -1003,6 +1131,14 @@ const CompositeStructure: React.FC = () => {
   const vScale = 25 / (Math.max(R_beam, V_col) || 1);
 
   const context = `组合结构, P=${P}kN, q=${q}kN/m, 梁弯矩=${M_beam.toFixed(0)}kNm, 柱弯矩=${M_col.toFixed(1)}kNm`;
+
+  const solveSteps = useMemo(() => [
+    { title: '识别结构层次', result: '梁为附属部分，柱为基本部分', explanation: '铰接连接 → 梁独立于柱' },
+    { title: '先分析附属部分（梁）', equation: `R_梁 = qL/2 = ${q}×${L}/2`, result: `${R_beam.toFixed(2)} kN` },
+    { title: '梁跨中弯矩', equation: `M_梁 = qL²/8 = ${q}×${L}²/8`, result: `${M_beam.toFixed(1)} kN·m` },
+    { title: '再分析基本部分（柱）', equation: `V_柱 = P = ${P}`, result: `${V_col.toFixed(1)} kN`, explanation: '柱承受水平力P' },
+    { title: '柱底弯矩', equation: `M_柱 = P×H = ${P}×${H}`, result: `${M_col.toFixed(1)} kN·m`, explanation: '铰接处弯矩为零，柱底最大' },
+  ], [P, q, L, H, R_beam, M_beam, V_col, M_col]);
 
   // 组合结构基础组件 - 紧凑版
   const CompositeBase = ({ showLoad = true }: { showLoad?: boolean }) => (
@@ -1052,37 +1188,34 @@ const CompositeStructure: React.FC = () => {
   };
 
   return (
-    <div className="flex gap-5 h-full p-5">
-      <div className="flex-1 flex flex-col gap-4 min-w-0">
-        {/* 上：参数 + 结构示意 */}
-        <div className="flex gap-4">
-          <div className="bg-white rounded-2xl border border-slate-200 p-5 w-72 flex-shrink-0 shadow-sm">
-            <h4 className="text-sm font-bold text-slate-800 mb-4">🔧 参数设置</h4>
-            <Slider label="水平力 P" value={P} min={20} max={80} unit="kN" onChange={setP} />
-            <Slider label="均布荷载 q" value={q} min={8} max={25} unit="kN/m" onChange={setQ} />
-            <div className="mt-4 p-3 bg-gradient-to-br from-slate-50 to-white rounded-xl text-sm text-slate-600 border border-slate-100">
-              <div>梁跨度: {L}m, 柱高: {H}m</div>
-            </div>
+    <div className="flex flex-col lg:flex-row gap-3 lg:gap-4 min-h-full p-3 lg:p-4">
+      <CollapsiblePanel title="参数" icon="🔧" side="left" storageKey="param-panel-composite">
+        <div className="bg-white rounded-xl border border-slate-200/80 p-3 shadow-sm overflow-y-auto">
+          <h4 className="text-xs font-semibold text-slate-600 mb-2">🔧 参数设置</h4>
+          <Slider label="水平力 P" value={P} min={20} max={80} unit="kN" onChange={setP} />
+          <Slider label="均布荷载 q" value={q} min={8} max={25} unit="kN/m" onChange={setQ} />
+          <div className="mt-4 p-3 bg-gradient-to-br from-slate-50 to-white rounded-xl text-sm text-slate-600 border border-slate-100">
+            <div>梁跨度: {L}m, 柱高: {H}m</div>
           </div>
-          
-          {/* 结构示意图 */}
-          <div className="bg-white rounded-2xl border border-slate-200 p-4 flex-1 shadow-sm">
-            <h4 className="text-sm font-bold text-slate-800 mb-2">📐 结构示意</h4>
-            <div className="max-w-lg mx-auto">
-              <svg width="100%" viewBox="0 0 180 115" className="bg-gradient-to-b from-slate-50 to-white rounded-xl">
-                <CompositeBase showLoad={true} />
-                <text x="90" y="112" className="text-[7px] fill-slate-500" textAnchor="middle">L={L}m, H={H}m</text>
-              </svg>
-            </div>
+        </div>
+      </CollapsiblePanel>
+      <div className="flex-1 flex flex-col gap-2 lg:gap-3 min-w-0">
+        <div className="bg-white rounded-xl border border-slate-200/80 p-4 shadow-sm">
+          <h4 className="text-xs font-semibold text-slate-600 mb-2">📐 结构示意</h4>
+          <div className="mx-auto">
+            <svg width="100%" viewBox="0 0 180 115" className="bg-gradient-to-b from-slate-50 to-white rounded-xl">
+              <CompositeBase showLoad={true} />
+              <text x="90" y="112" className="text-[7px] fill-slate-500" textAnchor="middle">L={L}m, H={H}m</text>
+            </svg>
           </div>
         </div>
 
         {/* 中：弯矩图和剪力图并排 */}
-        <div className="flex gap-4">
+        <div className="flex flex-col md:flex-row gap-2 md:gap-3">
           {/* 弯矩图 M */}
-          <div className="bg-white rounded-2xl border border-slate-200 p-3 flex-1 shadow-sm">
-            <h4 className="text-xs font-bold text-slate-800 mb-1">弯矩图 M (kN·m)</h4>
-            <div className="max-w-md mx-auto">
+          <div className="bg-white rounded-xl border border-slate-200/80 p-3 flex-1 shadow-sm">
+            <h4 className="text-xs font-semibold text-slate-600 mb-1">弯矩图 M (kN·m)</h4>
+            <div className="mx-auto">
               <svg width="100%" viewBox="0 0 180 115" className="bg-gradient-to-b from-slate-50 to-white rounded-lg">
                 <CompositeBase showLoad={false} />
                 {/* 左柱弯矩图 */}
@@ -1104,9 +1237,9 @@ const CompositeStructure: React.FC = () => {
           </div>
           
           {/* 剪力图 V */}
-          <div className="bg-white rounded-2xl border border-slate-200 p-3 flex-1 shadow-sm">
-            <h4 className="text-xs font-bold text-slate-800 mb-1">剪力图 V (kN)</h4>
-            <div className="max-w-md mx-auto">
+          <div className="bg-white rounded-xl border border-slate-200/80 p-3 flex-1 shadow-sm">
+            <h4 className="text-xs font-semibold text-slate-600 mb-1">剪力图 V (kN)</h4>
+            <div className="mx-auto">
               <svg width="100%" viewBox="0 0 180 115" className="bg-gradient-to-b from-slate-50 to-white rounded-lg">
                 <CompositeBase showLoad={false} />
                 {/* 左柱剪力 */}
@@ -1127,32 +1260,23 @@ const CompositeStructure: React.FC = () => {
           </div>
         </div>
 
-        {/* 下：结果 + 特点（上下排列） */}
-        <div className="flex flex-col gap-4">
-          <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
-            <h4 className="text-sm font-bold text-slate-800 mb-3">Σ 计算结果</h4>
-            <div className="flex gap-3">
-              <ResultCard label="梁反力" value={R_beam.toFixed(1)} unit="kN" color="blue" />
-              <ResultCard label="梁弯矩" value={M_beam.toFixed(0)} unit="kN·m" color="green" />
-              <ResultCard label="柱底弯矩" value={M_col.toFixed(0)} unit="kN·m" color="red" />
-              <ResultCard label="柱剪力" value={V_col.toFixed(0)} unit="kN" color="purple" />
-            </div>
-          </div>
-          <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
-            <h4 className="text-sm font-bold text-slate-800 mb-3">📖 分析要点</h4>
-            <div className="text-sm text-slate-600 space-y-1.5">
-              <div>• 铰接处：弯矩=0</div>
-              <div>• 先分析附属部分（梁）</div>
-              <div>• 再分析基本部分（柱）</div>
-            </div>
+        {/* 下：结果 */}
+        <div className="bg-white rounded-xl border border-slate-200/80 p-4 shadow-sm">
+          <h4 className="text-xs font-semibold text-slate-600 mb-2">Σ 计算结果</h4>
+          <div className="flex flex-wrap gap-2 md:gap-3">
+            <ResultCard label="梁反力" value={R_beam.toFixed(1)} unit="kN" color="blue" />
+            <ResultCard label="梁弯矩" value={M_beam.toFixed(0)} unit="kN·m" color="green" />
+            <ResultCard label="柱底弯矩" value={M_col.toFixed(0)} unit="kN·m" color="red" />
+            <ResultCard label="柱剪力" value={V_col.toFixed(0)} unit="kN" color="purple" />
           </div>
         </div>
+        <SolutionSteps steps={solveSteps} title="求解过程" />
       </div>
 
-      <div className="w-80 flex-shrink-0">
+      <CollapsiblePanel title="AI助手" icon="🤖" side="right" storageKey="ai-panel-composite">
         <AITutor context={context} moduleTitle="组合结构"
           suggestedQuestions={['什么是基本部分？', '分析顺序怎么确定？', '铰接处传递什么力？']} />
-      </div>
+      </CollapsiblePanel>
     </div>
   );
 };

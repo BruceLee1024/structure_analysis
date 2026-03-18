@@ -4,6 +4,9 @@ export enum ModuleType {
   INFLUENCE = 'influence',
 }
 
+export type StaticSubModule = 'geometry' | 'beam' | 'frame' | 'truss' | 'arch' | 'composite';
+export type InfluenceSubModule = 'static' | 'kinematic' | 'envelope' | 'application';
+
 // ========== Solver Module Types ==========
 
 export enum SupportType {
@@ -94,4 +97,6 @@ export interface AnalysisResult {
   elements: ElementResult[];
   maxDeflection: number;
   reactions: { nodeId: number; fx: number; fy: number; m: number }[];
+  displacements: { nodeId: number; dx: number; dy: number; rotation: number }[];
+  error?: string;
 }

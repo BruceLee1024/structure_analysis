@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Send, Bot, RefreshCw, Lightbulb } from 'lucide-react';
+import { AI_MODELS } from '../utils/aiModels';
 
 interface Message {
   role: 'assistant' | 'user';
@@ -44,15 +45,6 @@ const AITutor: React.FC<AITutorProps> = ({ context, moduleTitle, suggestedQuesti
     };
     return welcomes[title] || `👋 欢迎来到${title}模块！有什么问题可以问我。`;
   };
-
-  // AI 模型配置
-  const AI_MODELS = [
-    { id: 'deepseek', name: 'DeepSeek', apiUrl: 'https://api.deepseek.com/chat/completions', model: 'deepseek-chat' },
-    { id: 'qwen', name: '通义千问', apiUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions', model: 'qwen-turbo' },
-    { id: 'zhipu', name: '智谱AI', apiUrl: 'https://open.bigmodel.cn/api/paas/v4/chat/completions', model: 'glm-4-flash' },
-    { id: 'moonshot', name: 'Moonshot', apiUrl: 'https://api.moonshot.cn/v1/chat/completions', model: 'moonshot-v1-8k' },
-    { id: 'doubao', name: '豆包', apiUrl: 'https://ark.cn-beijing.volces.com/api/v3/chat/completions', model: 'doubao-lite-4k' },
-  ];
 
   const callAIAPI = async (userMessage: string): Promise<string> => {
     const apiKey = localStorage.getItem('ai_api_key');
