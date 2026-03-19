@@ -1,9 +1,16 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { Slider } from './Slider';
 import AITutor from './AITutor';
 import ResultCard from './ui/ResultCard';
 import SolutionSteps from './ui/SolutionSteps';
 import CollapsiblePanel from './ui/CollapsiblePanel';
+import AIBubble from './ui/AIBubble';
+import LearningMilestone from './ui/LearningMilestone';
+import ProgressBar from './ui/ProgressBar';
+import { useAIEngine } from '../hooks/useAIEngine';
+import { getBeamHints, getFrameHints, getTrussHints, getArchHints, getCompositeHints, type ResultHint } from '../utils/resultHints';
+
+const findHint = (hints: ResultHint[], label: string) => hints.find(h => h.label === label)?.hint;
 
 // 内力图组件
 interface DiagramProps {
@@ -116,6 +123,7 @@ const GeometryAnalysis: React.FC = () => {
   const [bars, setBars] = useState(5);
   const [constraints, setConstraints] = useState(3);
   const [preset, setPreset] = useState<string>('custom');
+  const { bubble, sync, ctx, milestone, dismissMilestone } = useAIEngine({ module: 'static', subModule: 'geometry' });
   
   const presets = [
     { id: 'custom', name: '自定义', n: 0, b: 0, c: 0 },
@@ -136,18 +144,25 @@ const GeometryAnalysis: React.FC = () => {
   
   const getStatus = () => {
     if (W > 0) return { text: '几何可变体系', color: 'text-red-600', bg: 'bg-gradient-to-br from-red-50 to-red-100/50 border-red-200', icon: '⚠' };
-    if (W === 0) return { text: '几何不变（静定）', color: 'text-green-600', bg: 'bg-gradient-to-br from-green-50 to-green-100/50 border-green-200', icon: '✓' };
+    if (W === 0) return { text: '满足静定必要条件', color: 'text-green-600', bg: 'bg-gradient-to-br from-green-50 to-green-100/50 border-green-200', icon: '✓' };
     return { text: `${Math.abs(W)}次超静定`, color: 'text-blue-600', bg: 'bg-gradient-to-br from-blue-50 to-blue-100/50 border-blue-200', icon: '🔒' };
   };
   const status = getStatus();
-  const context = `节点数n=${nodes}, 杆件数b=${bars}, 约束数c=${constraints}, 自由度W=${W}, 判定: ${status.text}`;
+  // Sync AI context
+  useEffect(() => {
+    sync(
+      { nodes, bars, constraints, preset },
+      { W, status: status.text },
+    );
+  }, [nodes, bars, constraints, preset, W, status.text, sync]);
+  const context = ctx.toPromptString();
 
   const solveSteps = useMemo(() => [
-    { title: '确定节点数', equation: `n = ${nodes}`, explanation: '体系中可自由运动的节点数' },
-    { title: '计算节点自由度', equation: `3n = 3 × ${nodes} = ${3 * nodes}`, explanation: '每个节点有3个自由度(水平、竖向、转角)' },
-    { title: '计算约束总数', equation: `2b + c = 2 × ${bars} + ${constraints} = ${2 * bars + constraints}`, explanation: '内部杆件约束 + 外部支座约束' },
+    { title: '确定节点数', equation: `n = ${nodes}`, explanation: '节点（刚片）= 体系中可自由运动的刚体数量，不包括地基' },
+    { title: '计算节点自由度', equation: `3n = 3 × ${nodes} = ${3 * nodes}`, explanation: '平面上每个刚体有3种独立运动：水平平移(→)、竖向平移(↑)、绕点转动(↻)，所以每个节点贡献3个自由度' },
+    { title: '计算约束总数', equation: `2b + c = 2 × ${bars} + ${constraints} = ${2 * bars + constraints}`, explanation: 'b 为铰的数量，每个铰限制2个相对位移(水平+竖向)；c 为单约束数(如链杆、滚动支座各提供1个约束)' },
     { title: '代入公式', equation: `W = 3n − 2b − c = ${3*nodes} − ${2*bars} − ${constraints}`, result: `${W}` },
-    { title: '判定结果', result: `${status.icon} ${status.text}`, explanation: W > 0 ? '体系缺少约束，可自由运动' : W === 0 ? '约束恰好，结构稳定且可用静力学求解' : `多余约束数为${Math.abs(W)}，需用力法/位移法求解` },
+    { title: '判定结果', result: `${status.icon} ${status.text}`, explanation: W > 0 ? '体系缺少约束，可自由运动' : W === 0 ? 'W=0 是静定的必要条件，但不充分——还需验证几何组成是否合理（如三链杆不共点、不共线等）' : `有${Math.abs(W)}个多余约束，为超静定结构，需用力法/位移法求解` },
   ], [nodes, bars, constraints, W, status]);
 
   return (
@@ -169,6 +184,9 @@ const GeometryAnalysis: React.FC = () => {
         </div>
       </CollapsiblePanel>
       <div className="flex-1 flex flex-col gap-2 lg:gap-3 min-w-0">
+        {milestone && <LearningMilestone milestone={milestone} onDismiss={dismissMilestone} />}
+        <ProgressBar currentModule="几何组成" />
+        <AIBubble message={bubble} />
         {/* 上：公式 */}
         <div className="bg-white rounded-xl border border-slate-200/80 p-4 shadow-sm flex flex-col gap-3">
             <h4 className="text-xs font-semibold text-slate-600 flex items-center gap-1.5">📐 计算公式</h4>
@@ -177,6 +195,12 @@ const GeometryAnalysis: React.FC = () => {
               <div className="text-3xl font-serif mb-3 text-slate-800">W = 3n − 2b − c</div>
               <div className="text-base text-slate-600">
                 W = 3×{nodes} − 2×{bars} − {constraints} = <span className={`text-xl font-bold ${status.color}`}>{W}</span>
+              </div>
+              <div className="flex flex-wrap justify-center gap-x-4 gap-y-1 mt-3 text-xs text-slate-500">
+                <span><strong className="text-slate-700">n</strong> = 节点(刚片)数</span>
+                <span><strong className="text-slate-700">b</strong> = 铰(二元约束)数</span>
+                <span><strong className="text-slate-700">c</strong> = 单约束数</span>
+                <span><strong className="text-slate-700">W</strong> = 自由度(多余约束数)</span>
               </div>
             </div>
             {/* 判定结果 */}
@@ -194,7 +218,7 @@ const GeometryAnalysis: React.FC = () => {
               { cond: 'W > 0', label: '几何可变体系', desc: '缺少约束，不稳定', active: W > 0,
                 activeCls: 'bg-gradient-to-br from-red-50 to-red-100/50 border-red-400 shadow-md scale-[1.02]',
                 textCls: 'text-red-600' },
-              { cond: 'W = 0', label: '静定结构', desc: '恰好约束，可静力求解', active: W === 0,
+              { cond: 'W = 0', label: '静定(必要条件)', desc: '约束数量刚好，但需验证几何组成', active: W === 0,
                 activeCls: 'bg-gradient-to-br from-green-50 to-green-100/50 border-green-400 shadow-md scale-[1.02]',
                 textCls: 'text-green-600' },
               { cond: 'W < 0', label: '超静定结构', desc: '多余约束，需特殊方法', active: W < 0,
@@ -209,6 +233,9 @@ const GeometryAnalysis: React.FC = () => {
                 <div className="text-xs text-slate-500 mt-1">{r.desc}</div>
               </div>
             ))}
+          </div>
+          <div className="mt-2 px-3 py-2 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-800">
+            <strong>⚠ 注意：</strong>W ≤ 0 是几何不变的<strong>必要条件</strong>，不是充分条件。即使 W = 0，若约束布置不当（如三链杆共点/共线），体系仍可能是瞬变体系。需进一步做几何组成分析。
           </div>
         </div>
 
@@ -257,6 +284,7 @@ const StaticBeam: React.FC = () => {
   const [q, setQ] = useState(10);
   const [a, setA] = useState(50);
   const [overhang, setOverhang] = useState(2);
+  const { bubble, sync, ctx, milestone, dismissMilestone } = useAIEngine({ module: 'static', subModule: 'beam' });
   
   // Clamp overhang when L shrinks
   const safeOverhang = Math.min(overhang, Math.max(1, Math.floor(L / 2)));
@@ -310,28 +338,36 @@ const StaticBeam: React.FC = () => {
   const vScale = 30 / (Vmax || 1);
 
   const beamLabel = beamType === 'simple' ? '简支梁' : beamType === 'cantilever' ? '悬臂梁' : '外伸梁';
-  const context = `${beamLabel}, ${loadType === 'point' ? `集中力P=${P}kN` : `均布q=${q}kN/m`}, L=${L}m${beamType === 'overhanging' ? `, 悬臂=${safeOverhang}m` : ''}`;
+  useEffect(() => {
+    sync(
+      { beamType, loadType, L, P, q, a },
+      { RA, RB, Mmax, Vmax },
+    );
+  }, [beamType, loadType, L, P, q, a, RA, RB, Mmax, Vmax, sync]);
+  const context = ctx.toPromptString();
+
+  const beamHints = useMemo(() => getBeamHints({ beamType, loadType, L, P, q, RA, RB, Mmax, Vmax }), [beamType, loadType, L, P, q, RA, RB, Mmax, Vmax]);
 
   const solveSteps = useMemo(() => {
-    const steps: { title: string; equation?: string; result?: string; explanation?: string }[] = [];
+    const steps: { title: string; equation?: string; result?: string; explanation?: string; aiWhy?: string }[] = [];
     if (beamType === 'simple' && loadType === 'point') {
       const aPos = loadPos, bPos = bLen;
-      steps.push({ title: '取整体平衡 ΣMA=0', equation: `RB×${L} = P×a = ${P}×${aPos.toFixed(1)}`, result: `RB = ${RB.toFixed(2)} kN` });
-      steps.push({ title: 'ΣFy=0', equation: `RA + RB = P`, result: `RA = ${RA.toFixed(2)} kN` });
-      steps.push({ title: '求最大弯矩', equation: `Mmax = P·a·b/L = ${P}×${aPos.toFixed(1)}×${bPos.toFixed(1)}/${L}`, result: `${Mmax.toFixed(2)} kN·m`, explanation: '在集中力作用点处' });
+      steps.push({ title: '取整体平衡 ΣMA=0', equation: `RB×${L} = P×a = ${P}×${aPos.toFixed(1)}`, result: `RB = ${RB.toFixed(2)} kN`, aiWhy: '对A点取矩可以消去RA，只剩RB一个未知数，一个方程就能求解。这是求解静定结构的标准策略。' });
+      steps.push({ title: 'ΣFy=0', equation: `RA + RB = P`, result: `RA = ${RA.toFixed(2)} kN`, aiWhy: '竖向平衡条件：所有竖向力之和为零。已知P和RB，直接求出RA。' });
+      steps.push({ title: '求最大弯矩', equation: `Mmax = P·a·b/L = ${P}×${aPos.toFixed(1)}×${bPos.toFixed(1)}/${L}`, result: `${Mmax.toFixed(2)} kN·m`, explanation: '在集中力作用点处', aiWhy: '集中力作用点处弯矩图有尖角（斜率突变），所以最大弯矩一定在这里。当a=b=L/2时Mmax=PL/4为最大。' });
     } else if (beamType === 'simple' && loadType === 'distributed') {
-      steps.push({ title: '对称性 → RA=RB', equation: `RA = RB = qL/2 = ${q}×${L}/2`, result: `${RA.toFixed(2)} kN` });
-      steps.push({ title: '求跨中最大弯矩', equation: `Mmax = qL²/8 = ${q}×${L}²/8`, result: `${Mmax.toFixed(2)} kN·m`, explanation: '抛物线分布，最大值在跨中' });
+      steps.push({ title: '对称性 → RA=RB', equation: `RA = RB = qL/2 = ${q}×${L}/2`, result: `${RA.toFixed(2)} kN`, aiWhy: '均布荷载对称且结构对称，所以两个支座反力相等，各承担一半。' });
+      steps.push({ title: '求跨中最大弯矩', equation: `Mmax = qL²/8 = ${q}×${L}²/8`, result: `${Mmax.toFixed(2)} kN·m`, explanation: '抛物线分布，最大值在跨中', aiWhy: '均布荷载下弯矩图为抛物线，跨中剪力为零，正是弯矩的极值点。qL²/8是结构工程中最常见的公式之一。' });
     } else if (beamType === 'cantilever' && loadType === 'point') {
-      steps.push({ title: 'ΣFy=0', equation: `RA = P`, result: `${RA.toFixed(2)} kN` });
-      steps.push({ title: '固定端弯矩', equation: `M = P×a = ${P}×${loadPos.toFixed(1)}`, result: `${Mmax.toFixed(2)} kN·m`, explanation: '弯矩在固定端最大' });
+      steps.push({ title: 'ΣFy=0', equation: `RA = P`, result: `${RA.toFixed(2)} kN`, aiWhy: '悬臂梁只有一个固定端，所有竖向力必须由固定端承受。' });
+      steps.push({ title: '固定端弯矩', equation: `M = P×a = ${P}×${loadPos.toFixed(1)}`, result: `${Mmax.toFixed(2)} kN·m`, explanation: '弯矩在固定端最大', aiWhy: '固定端弯矩=力×力臂，荷载越远离固定端，弯矩越大。这就是悬臂梁跨度通常较短的原因。' });
     } else if (beamType === 'cantilever' && loadType === 'distributed') {
       steps.push({ title: 'ΣFy=0', equation: `RA = qL = ${q}×${L}`, result: `${RA.toFixed(2)} kN` });
-      steps.push({ title: '固定端弯矩', equation: `M = qL²/2 = ${q}×${L}²/2`, result: `${Mmax.toFixed(2)} kN·m` });
+      steps.push({ title: '固定端弯矩', equation: `M = qL²/2 = ${q}×${L}²/2`, result: `${Mmax.toFixed(2)} kN·m`, aiWhy: '均布荷载下悬臂梁固定端弯矩 = qL²/2，比简支梁的 qL²/8 大四倍！这就是为什么悬臂梁不适合大跨度。' });
     } else if (beamType === 'overhanging') {
       steps.push({ title: 'ΣMA=0 求RB', result: `RB = ${RB.toFixed(2)} kN` });
       steps.push({ title: 'ΣFy=0 求RA', result: `RA = ${RA.toFixed(2)} kN` });
-      steps.push({ title: '最大弯矩', result: `Mmax = ${Mmax.toFixed(2)} kN·m`, explanation: '注意悬臂端负弯矩' });
+      steps.push({ title: '最大弯矩', result: `Mmax = ${Mmax.toFixed(2)} kN·m`, explanation: '注意悬臂端负弯矩', aiWhy: '外伸梁在支座B处可能出现负弯矩，悬臂段的荷载会“翻转”弯矩方向。' });
     }
     steps.push({ title: '最大剪力', result: `Vmax = ${Vmax.toFixed(2)} kN` });
     return steps;
@@ -501,6 +537,9 @@ const StaticBeam: React.FC = () => {
         </div>
       </CollapsiblePanel>
       <div className="flex-1 flex flex-col gap-2 lg:gap-3 min-w-0">
+        {milestone && <LearningMilestone milestone={milestone} onDismiss={dismissMilestone} />}
+        <ProgressBar currentModule="静定梁" />
+        <AIBubble message={bubble} />
         {/* 结构示意图 */}
         <div className="bg-white rounded-xl border border-slate-200/80 p-4 shadow-sm">
           <h4 className="text-xs font-semibold text-slate-600 mb-2">📐 结构示意</h4>
@@ -557,10 +596,10 @@ const StaticBeam: React.FC = () => {
         <div className="bg-white rounded-xl border border-slate-200/80 p-4 shadow-sm">
           <h4 className="text-xs font-semibold text-slate-600 mb-2">Σ 计算结果</h4>
           <div className="flex flex-wrap gap-2 md:gap-3">
-            <ResultCard label="RA" value={RA.toFixed(1)} unit="kN" color="blue" />
-            <ResultCard label="RB" value={beamType === 'cantilever' ? '-' : RB.toFixed(1)} unit="kN" color="blue" />
-            <ResultCard label="Mmax" value={Mmax.toFixed(1)} unit="kN·m" color="red" />
-            <ResultCard label="Vmax" value={Vmax.toFixed(1)} unit="kN" color="green" />
+            <ResultCard label="RA" value={RA.toFixed(1)} unit="kN" color="blue" aiHint={findHint(beamHints, 'RA')} />
+            <ResultCard label="RB" value={beamType === 'cantilever' ? '-' : RB.toFixed(1)} unit="kN" color="blue" aiHint={findHint(beamHints, 'RB')} />
+            <ResultCard label="Mmax" value={Mmax.toFixed(1)} unit="kN·m" color="red" aiHint={findHint(beamHints, 'Mmax')} />
+            <ResultCard label="Vmax" value={Vmax.toFixed(1)} unit="kN" color="green" aiHint={findHint(beamHints, 'Vmax')} />
           </div>
         </div>
         {/* 求解过程 */}
@@ -582,6 +621,7 @@ const StaticFrame: React.FC = () => {
   const [L, setL] = useState(6);
   const [H, setH] = useState(6);
   const [P, setP] = useState(10);
+  const { bubble, sync, ctx, milestone, dismissMilestone } = useAIEngine({ module: 'static', subModule: 'frame' });
   const [q, setQ] = useState(20);
   const [hPos, setHPos] = useState(50); // 水平力位置（0-100%，从底部算起）
   
@@ -589,7 +629,7 @@ const StaticFrame: React.FC = () => {
   const hLoad = (hPos / 100) * H;
   
   // 求解支座反力
-  const FxB = P;
+  const FxA = P;
   const FyA = (q * L) / 2 + (P * hLoad) / L;
   const FyB = (q * L) / 2 - (P * hLoad) / L;
   
@@ -612,15 +652,20 @@ const StaticFrame: React.FC = () => {
   const qScale = 20 / (Qmax || 1);
   const nScale = 18 / (Nmax || 1);
 
-  const context = `门式刚架, L=${L}m, H=${H}m, P=${P}kN(位置${hPos}%), q=${q}kN/m`;
+  useEffect(() => {
+    sync({ L, H, P, hPos, q }, { FyA, FyB, FxA, M_E: M_E, M_mid });
+  }, [L, H, P, hPos, q, FyA, FyB, FxA, M_E, M_mid, sync]);
+  const context = ctx.toPromptString();
+
+  const frameHints = useMemo(() => getFrameHints({ L, H, P, q, FyA, FyB, FxA, M_E }), [L, H, P, q, FyA, FyB, FxA, M_E]);
 
   const solveSteps = useMemo(() => [
-    { title: 'ΣFx=0 → FxB', equation: `FxB = P = ${P}`, result: `${FxB.toFixed(2)} kN` },
-    { title: 'ΣMA=0 → FyB', equation: `FyB×${L} = qL²/2 − P×h = ${q}×${L}²/2 − ${P}×${hLoad.toFixed(1)}`, result: `${FyB.toFixed(2)} kN` },
+    { title: 'ΣFx=0 → FxA', equation: `FxA = P = ${P}`, result: `${FxA.toFixed(2)} kN`, aiWhy: '水平方向只有P和FxA两个力，平衡条件直接给出FxA=P。A为铰支座提供水平反力，B为滚动支座无水平反力。' },
+    { title: 'ΣMA=0 → FyB', equation: `FyB×${L} = qL²/2 − P×h = ${q}×${L}²/2 − ${P}×${hLoad.toFixed(1)}`, result: `${FyB.toFixed(2)} kN`, aiWhy: '对A点取矩消去A点反力。水平力P的矩会影响FyB的大小，这是刚架与简支梁的关键区别。' },
     { title: 'ΣFy=0 → FyA', equation: `FyA = qL − FyB = ${q}×${L} − ${FyB.toFixed(1)}`, result: `${FyA.toFixed(2)} kN` },
-    { title: '柱顶弯矩 ME', equation: `ME = P×h = ${P}×${hLoad.toFixed(1)}`, result: `${M_E.toFixed(2)} kN·m`, explanation: '截面法，取左柱E截面' },
-    { title: '梁跨中弯矩', equation: `M_mid = ME − FyA×L/2 + qL²/8`, result: `${M_mid.toFixed(2)} kN·m` },
-  ], [L, H, P, q, hLoad, FxB, FyA, FyB, M_E, M_mid]);
+    { title: '柱顶弯矩 ME', equation: `ME = P×h = ${P}×${hLoad.toFixed(1)}`, result: `${M_E.toFixed(2)} kN·m`, explanation: '截面法，取左柱E截面', aiWhy: '截面法：在柱顶处截开，取下部为隔离体，ME = P×力臂。水平力位置越高，柱顶弯矩越大。' },
+    { title: '梁跨中弯矩', equation: `M_mid = ME − FyA×L/2 + qL²/8`, result: `${M_mid.toFixed(2)} kN·m`, aiWhy: '梁跨中弯矩由三部分组成：柱顶传来的弯矩ME、支座反力产生的负弯矩、均布荷载产生的正弯矩。' },
+  ], [L, H, P, q, hLoad, FxA, FyA, FyB, M_E, M_mid]);
 
   // 绘制刚架基础结构的SVG组件 - 紧凑版
   const FrameBase = () => (
@@ -651,6 +696,9 @@ const StaticFrame: React.FC = () => {
         </div>
       </CollapsiblePanel>
       <div className="flex-1 flex flex-col gap-2 lg:gap-3 min-w-0">
+        {milestone && <LearningMilestone milestone={milestone} onDismiss={dismissMilestone} />}
+        <ProgressBar currentModule="静定刚架" />
+        <AIBubble message={bubble} />
         {/* 结构示意图 */}
         <div className="bg-white rounded-xl border border-slate-200/80 p-4 shadow-sm">
           <h4 className="text-xs font-semibold text-slate-600 mb-2">📐 结构示意</h4>
@@ -749,10 +797,10 @@ const StaticFrame: React.FC = () => {
         <div className="bg-white rounded-xl border border-slate-200/80 p-4 shadow-sm">
           <h4 className="text-xs font-semibold text-slate-600 mb-2">Σ 计算结果</h4>
           <div className="flex flex-wrap gap-2 md:gap-3">
-            <ResultCard label="FyA" value={FyA.toFixed(1)} unit="kN" color="blue" />
+            <ResultCard label="FyA" value={FyA.toFixed(1)} unit="kN" color="blue" aiHint={findHint(frameHints, 'FyA')} />
             <ResultCard label="FyB" value={FyB.toFixed(1)} unit="kN" color="blue" />
-            <ResultCard label="FxB" value={FxB.toFixed(1)} unit="kN" color="blue" />
-            <ResultCard label="ME" value={M_E.toFixed(1)} unit="kN·m" color="red" />
+            <ResultCard label="FxA" value={FxA.toFixed(1)} unit="kN" color="blue" aiHint={findHint(frameHints, 'FxA')} />
+            <ResultCard label="ME" value={M_E.toFixed(1)} unit="kN·m" color="red" aiHint={findHint(frameHints, 'ME')} />
             <ResultCard label="M跨中" value={M_mid.toFixed(1)} unit="kN·m" color="red" />
           </div>
         </div>
@@ -771,6 +819,7 @@ const StaticFrame: React.FC = () => {
 const StaticTruss: React.FC = () => {
   const [P, setP] = useState(50);
   const [showAxial, setShowAxial] = useState(true);
+  const { bubble, sync, ctx, milestone, dismissMilestone } = useAIEngine({ module: 'static', subModule: 'truss' });
   
   const L = 12, H = 4;
   const RA = P / 2;
@@ -784,13 +833,18 @@ const StaticTruss: React.FC = () => {
   const N_diag1 = RA / sinA; // 左斜杆（拉）
   const N_diag2 = -RA / sinA; // 中斜杆（压）
 
-  const context = `Warren桁架, P=${P}kN, 下弦(拉)=${N_bottom.toFixed(1)}kN, 上弦(压)=${N_top.toFixed(1)}kN`;
+  useEffect(() => {
+    sync({ P }, { RA, N_bottom, N_top, N_diag1, N_diag2 });
+  }, [P, RA, N_bottom, N_top, N_diag1, N_diag2, sync]);
+  const context = ctx.toPromptString();
+
+  const trussHints = useMemo(() => getTrussHints({ P, RA, N_bottom, N_top }), [P, RA, N_bottom, N_top]);
 
   const solveSteps = useMemo(() => [
-    { title: '对称性求反力', equation: `RA = RB = P/2 = ${P}/2`, result: `${RA.toFixed(1)} kN`, explanation: '对称结构 + 对称荷载' },
-    { title: '截面法：截断1-1', equation: `ΣMC=0: N_底×H = RA×(L/4)`, result: `N_底 = +${N_bottom.toFixed(1)} kN (拉)`, explanation: '对上弦节点C取矩' },
-    { title: '截面法：截断1-1', equation: `ΣME=0: N_顶×H = −RA×(L/4)`, result: `N_顶 = ${N_top.toFixed(1)} kN (压)` },
-    { title: '节点法：节点A', equation: `ΣFy=0: N_斜×sinα = RA`, result: `N_斜 = +${N_diag1.toFixed(1)} kN (拉)`, explanation: `sinα = ${sinA.toFixed(3)}, 斜杆角度 = ${(Math.atan2(H, L/4) * 180 / Math.PI).toFixed(1)}°` },
+    { title: '对称性求反力', equation: `RA = RB = P/2 = ${P}/2`, result: `${RA.toFixed(1)} kN`, explanation: '对称结构 + 对称荷载', aiWhy: '对称结构受对称荷载，反力必然对称。无需列方程，直接RA=RB=P/2。这是利用对称性简化计算的典范。' },
+    { title: '截面法：截断1-1', equation: `ΣMC=0: N_底×H = RA×(L/4)`, result: `N_底 = +${N_bottom.toFixed(1)} kN (拉)`, explanation: '对上弦节点C取矩', aiWhy: '截面法的关键是选取矩心：对C点取矩可消去上弦杆和斜杆的力矩，只留下弦杆一个未知。' },
+    { title: '截面法：截断1-1', equation: `ΣME=0: N_顶×H = −RA×(L/4)`, result: `N_顶 = ${N_top.toFixed(1)} kN (压)`, aiWhy: '同理，对下弦节点E取矩消去其他杆件的力矩。上弦杆受压是框架和拱杆共同的特征。' },
+    { title: '节点法：节点A', equation: `ΣFy=0: N_斜×sinα = RA`, result: `N_斜 = +${N_diag1.toFixed(1)} kN (拉)`, explanation: `sinα = ${sinA.toFixed(3)}, 斜杆角度 = ${(Math.atan2(H, L/4) * 180 / Math.PI).toFixed(1)}°`, aiWhy: '节点法：框架节点受力平衡。在A点，竖向只有RA和斜杆的竖向分量，因此斜杆轴力 = RA/sinα。' },
     { title: '节点法：节点C', result: `N_中斜 = ${N_diag2.toFixed(1)} kN (压)`, explanation: '中间斜杆受压，对称' },
   ], [P, RA, N_bottom, N_top, N_diag1, N_diag2, sinA, H, L]);
 
@@ -848,6 +902,9 @@ const StaticTruss: React.FC = () => {
         </div>
       </CollapsiblePanel>
       <div className="flex-1 flex flex-col gap-2 lg:gap-3 min-w-0">
+        {milestone && <LearningMilestone milestone={milestone} onDismiss={dismissMilestone} />}
+        <ProgressBar currentModule="静定桁架" />
+        <AIBubble message={bubble} />
         <div className="bg-white rounded-xl border border-slate-200/80 p-4 shadow-sm">
           <h4 className="text-xs font-semibold text-slate-600 mb-2">📐 结构示意</h4>
           <div className="mx-auto">
@@ -936,10 +993,10 @@ const StaticTruss: React.FC = () => {
         <div className="bg-white rounded-xl border border-slate-200/80 p-4 shadow-sm">
           <h4 className="text-xs font-semibold text-slate-600 mb-2">Σ 计算结果</h4>
           <div className="flex flex-wrap gap-2 md:gap-3">
-            <ResultCard label="下弦(拉)" value={`+${N_bottom.toFixed(1)}`} unit="kN" color="blue" />
-            <ResultCard label="上弦(压)" value={N_top.toFixed(1)} unit="kN" color="red" />
+            <ResultCard label="下弦(拉)" value={`+${N_bottom.toFixed(1)}`} unit="kN" color="blue" aiHint={findHint(trussHints, '下弦杆')} />
+            <ResultCard label="上弦(压)" value={N_top.toFixed(1)} unit="kN" color="red" aiHint={findHint(trussHints, '上弦杆')} />
             <ResultCard label="斜杆" value={`±${Math.abs(N_diag1).toFixed(1)}`} unit="kN" color="green" />
-            <ResultCard label="支座反力" value={RA.toFixed(1)} unit="kN" color="purple" />
+            <ResultCard label="支座反力" value={RA.toFixed(1)} unit="kN" color="purple" aiHint={findHint(trussHints, 'RA')} />
           </div>
           <div className="flex gap-3 mt-3">
             <FormulaCard title="节点法" formula="ΣF=0" desc="逐个节点求解" />
@@ -963,11 +1020,15 @@ const StaticArch: React.FC = () => {
   const [L, setL] = useState(20);
   const [f, setF] = useState(5);
   const [q, setQ] = useState(10);
+  const { bubble, sync, ctx, milestone, dismissMilestone } = useAIEngine({ module: 'static', subModule: 'arch' });
   
   const RA = (q * L) / 2;
   const H_thrust = (q * L * L) / (8 * f);
   const Mmax_beam = (q * L * L) / 8;
-  const reduction = 100;
+  // 抱物线拱在均布荷载下为合理拱轴线，弯矩恒为零
+  // 实际工程中活荷载会产生小量弯矩，但此模块展示的是理想情况
+  const Mmax_arch = 0; // 抛物线拱 + 均布荷载 → 弯矩恒为0
+  const reduction = Mmax_beam > 0 ? Math.round((1 - Mmax_arch / Mmax_beam) * 100) : 100;
 
   const getAxialForce = (xi: number) => {
     const x = xi * L;
@@ -980,15 +1041,20 @@ const StaticArch: React.FC = () => {
   const N_crown = -H_thrust;
   const N_support = getAxialForce(0);
 
-  const context = `三铰拱, L=${L}m, f=${f}m, q=${q}kN/m, R=${RA.toFixed(1)}kN, H=${H_thrust.toFixed(1)}kN`;
+  useEffect(() => {
+    sync({ L, f, q }, { RA, H_thrust, N_crown, N_support });
+  }, [L, f, q, RA, H_thrust, N_crown, N_support, sync]);
+  const context = ctx.toPromptString();
+
+  const archHints = useMemo(() => getArchHints({ L, f, q, RA, H_thrust }), [L, f, q, RA, H_thrust]);
 
   const solveSteps = useMemo(() => [
-    { title: '对称性求竖向反力', equation: `RA = RB = qL/2 = ${q}×${L}/2`, result: `${RA.toFixed(2)} kN` },
-    { title: '铰C条件求水平推力', equation: `MC=0: H×f = qL²/8 → H = qL²/(8f)`, result: `${H_thrust.toFixed(2)} kN`, explanation: '三铰拱的关键方程：利用拱顶铰弯矩为零' },
-    { title: '简支梁弯矩（对比）', equation: `M_梁 = qL²/8 = ${q}×${L}²/8`, result: `${Mmax_beam.toFixed(1)} kN·m` },
-    { title: '拱弯矩 M = M_梁 − Hy', equation: `当y = 合理拱轴线时, M ≈ 0`, result: '弯矩几乎为零', explanation: '均布荷载下二次抛物线拱的弯矩恒为零' },
+    { title: '对称性求竖向反力', equation: `RA = RB = qL/2 = ${q}×${L}/2`, result: `${RA.toFixed(2)} kN`, aiWhy: '拱结构对称且荷载对称，竖向反力各承担一半。与简支梁相同。' },
+    { title: '铰C条件求水平推力', equation: `MC=0: H×f = qL²/8 → H = qL²/(8f)`, result: `${H_thrust.toFixed(2)} kN`, explanation: '三铰拱的关键方程：利用拱顶铰弯矩为零', aiWhy: '三铰拱比简支梁多一个未知数H，正好用拱顶铰的弯矩=0这个额外条件求解。这是拱结构分析的核心。' },
+    { title: '简支梁弯矩（对比）', equation: `M_梁 = qL²/8 = ${q}×${L}²/8`, result: `${Mmax_beam.toFixed(1)} kN·m`, aiWhy: '先计算同跨度简支梁的弯矩，作为对比基准。拱的优势就是大幅减小弯矩。' },
+    { title: '拱弯矩 M = M_梁 − Hy', equation: `当y = 合理拱轴线时, M ≈ 0`, result: '弯矩几乎为零', explanation: '均布荷载下二次抛物线拱的弯矩恒为零', aiWhy: '拱弯矩 = 简支梁弯矩 − H×y。当拱轴线为抛物线时，Hy恰好等于梁弯矩，相减为零！这就是“合理拱轴线”的含义。' },
     { title: '拱顶轴力', equation: `N_拱顶 = −H = −${H_thrust.toFixed(1)}`, result: `${N_crown.toFixed(1)} kN (压)` },
-    { title: '拱脚轴力', result: `${N_support.toFixed(1)} kN (压)`, explanation: '拱脚处斜率最大，轴力最大' },
+    { title: '拱脚轴力', result: `${N_support.toFixed(1)} kN (压)`, explanation: '拱脚处斜率最大，轴力最大', aiWhy: '拱脚处拱轴线斜率最大，竖向力和水平力都有贡献，合力最大。拱脚是拱结构的关键截面。' },
   ], [L, f, q, RA, H_thrust, Mmax_beam, N_crown, N_support]);
 
   // 拱基础结构组件 - 紧凑版
@@ -1025,6 +1091,9 @@ const StaticArch: React.FC = () => {
         </div>
       </CollapsiblePanel>
       <div className="flex-1 flex flex-col gap-2 lg:gap-3 min-w-0">
+        {milestone && <LearningMilestone milestone={milestone} onDismiss={dismissMilestone} />}
+        <ProgressBar currentModule="三铰拱" />
+        <AIBubble message={bubble} />
         <div className="bg-white rounded-xl border border-slate-200/80 p-4 shadow-sm">
           <h4 className="text-xs font-semibold text-slate-600 mb-2">📐 结构示意</h4>
           <div className="mx-auto">
@@ -1096,7 +1165,7 @@ const StaticArch: React.FC = () => {
           <h4 className="text-xs font-semibold text-slate-600 mb-2">Σ 计算结果</h4>
           <div className="flex flex-wrap gap-2 md:gap-3 mb-3">
             <ResultCard label="竖向反力R" value={RA.toFixed(1)} unit="kN" color="blue" />
-            <ResultCard label="水平推力H" value={H_thrust.toFixed(1)} unit="kN" color="red" />
+            <ResultCard label="水平推力H" value={H_thrust.toFixed(1)} unit="kN" color="red" aiHint={findHint(archHints, 'H')} />
             <ResultCard label="拱顶轴力" value={N_crown.toFixed(0)} unit="kN" color="purple" />
             <ResultCard label="拱脚轴力" value={N_support.toFixed(0)} unit="kN" color="purple" />
           </div>
@@ -1119,6 +1188,7 @@ const StaticArch: React.FC = () => {
 const CompositeStructure: React.FC = () => {
   const [P, setP] = useState(40);
   const [q, setQ] = useState(15);
+  const { bubble, sync, ctx, milestone, dismissMilestone } = useAIEngine({ module: 'static', subModule: 'composite' });
   
   const L = 12, H = 6;
   const R_beam = (q * L) / 2;
@@ -1130,14 +1200,19 @@ const CompositeStructure: React.FC = () => {
   const mScale = 35 / (Math.max(M_beam, M_col) || 1);
   const vScale = 25 / (Math.max(R_beam, V_col) || 1);
 
-  const context = `组合结构, P=${P}kN, q=${q}kN/m, 梁弯矩=${M_beam.toFixed(0)}kNm, 柱弯矩=${M_col.toFixed(1)}kNm`;
+  useEffect(() => {
+    sync({ P, q }, { R_beam, M_beam, M_col, V_col });
+  }, [P, q, R_beam, M_beam, M_col, V_col, sync]);
+  const context = ctx.toPromptString();
+
+  const compositeHints = useMemo(() => getCompositeHints({ P, q, R_beam, M_beam, M_col }), [P, q, R_beam, M_beam, M_col]);
 
   const solveSteps = useMemo(() => [
-    { title: '识别结构层次', result: '梁为附属部分，柱为基本部分', explanation: '铰接连接 → 梁独立于柱' },
-    { title: '先分析附属部分（梁）', equation: `R_梁 = qL/2 = ${q}×${L}/2`, result: `${R_beam.toFixed(2)} kN` },
+    { title: '识别结构层次', result: '梁为附属部分，柱为基本部分', explanation: '铰接连接 → 梁独立于柱', aiWhy: '组合结构的关键是识别“附属部分”和“基本部分”。铰接处弯矩为零，梁只传递竖向力给柱，不传弯矩。' },
+    { title: '先分析附属部分（梁）', equation: `R_梁 = qL/2 = ${q}×${L}/2`, result: `${R_beam.toFixed(2)} kN`, aiWhy: '先分析附属部分（梁），因为它可以独立求解。这是组合结构分析的标准顺序。' },
     { title: '梁跨中弯矩', equation: `M_梁 = qL²/8 = ${q}×${L}²/8`, result: `${M_beam.toFixed(1)} kN·m` },
-    { title: '再分析基本部分（柱）', equation: `V_柱 = P = ${P}`, result: `${V_col.toFixed(1)} kN`, explanation: '柱承受水平力P' },
-    { title: '柱底弯矩', equation: `M_柱 = P×H = ${P}×${H}`, result: `${M_col.toFixed(1)} kN·m`, explanation: '铰接处弯矩为零，柱底最大' },
+    { title: '再分析基本部分（柱）', equation: `V_柱 = P = ${P}`, result: `${V_col.toFixed(1)} kN`, explanation: '柱承受水平力P', aiWhy: '柱作为基本部分，承受梁传来的竖向力 + 外部水平力P。铰接处不传递弯矩。' },
+    { title: '柱底弯矩', equation: `M_柱 = P×H = ${P}×${H}`, result: `${M_col.toFixed(1)} kN·m`, explanation: '铰接处弯矩为零，柱底最大', aiWhy: '柱底弯矩 = P×柱高，类似悬臂梁。铰接处是弯矩零点，柱底是固定端，弯矩最大。' },
   ], [P, q, L, H, R_beam, M_beam, V_col, M_col]);
 
   // 组合结构基础组件 - 紧凑版
@@ -1200,6 +1275,9 @@ const CompositeStructure: React.FC = () => {
         </div>
       </CollapsiblePanel>
       <div className="flex-1 flex flex-col gap-2 lg:gap-3 min-w-0">
+        {milestone && <LearningMilestone milestone={milestone} onDismiss={dismissMilestone} />}
+        <ProgressBar currentModule="组合结构" />
+        <AIBubble message={bubble} />
         <div className="bg-white rounded-xl border border-slate-200/80 p-4 shadow-sm">
           <h4 className="text-xs font-semibold text-slate-600 mb-2">📐 结构示意</h4>
           <div className="mx-auto">
@@ -1265,8 +1343,8 @@ const CompositeStructure: React.FC = () => {
           <h4 className="text-xs font-semibold text-slate-600 mb-2">Σ 计算结果</h4>
           <div className="flex flex-wrap gap-2 md:gap-3">
             <ResultCard label="梁反力" value={R_beam.toFixed(1)} unit="kN" color="blue" />
-            <ResultCard label="梁弯矩" value={M_beam.toFixed(0)} unit="kN·m" color="green" />
-            <ResultCard label="柱底弯矩" value={M_col.toFixed(0)} unit="kN·m" color="red" />
+            <ResultCard label="梁弯矩" value={M_beam.toFixed(0)} unit="kN·m" color="green" aiHint={findHint(compositeHints, 'M_梁')} />
+            <ResultCard label="柱底弯矩" value={M_col.toFixed(0)} unit="kN·m" color="red" aiHint={findHint(compositeHints, 'M_柱')} />
             <ResultCard label="柱剪力" value={V_col.toFixed(0)} unit="kN" color="purple" />
           </div>
         </div>

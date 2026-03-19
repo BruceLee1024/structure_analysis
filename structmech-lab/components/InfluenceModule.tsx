@@ -1,9 +1,16 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { Slider } from './Slider';
 import AITutor from './AITutor';
 import ResultCard from './ui/ResultCard';
 import SolutionSteps from './ui/SolutionSteps';
 import CollapsiblePanel from './ui/CollapsiblePanel';
+import AIBubble from './ui/AIBubble';
+import LearningMilestone from './ui/LearningMilestone';
+import ProgressBar from './ui/ProgressBar';
+import { useAIEngine } from '../hooks/useAIEngine';
+import { getILStaticHints, getEnvelopeHints, getApplicationHints, type ResultHint } from '../utils/resultHints';
+
+const findHint = (hints: ResultHint[], label: string) => hints.find(h => h.label === label)?.hint;
 
 // ==================== 静力法作影响线 ====================
 const StaticMethod: React.FC = () => {
@@ -11,6 +18,7 @@ const StaticMethod: React.FC = () => {
   const [loadPos, setLoadPos] = useState(50);
   const [targetType, setTargetType] = useState<'RA' | 'RB' | 'Mc' | 'Qc'>('RA');
   const [sectionPos, setSectionPos] = useState(40);
+  const { bubble, sync, ctx, milestone, dismissMilestone } = useAIEngine({ module: 'influence', subModule: 'static' });
   
   const x = (loadPos / 100) * L;
   const c = (sectionPos / 100) * L;
@@ -66,11 +74,19 @@ const StaticMethod: React.FC = () => {
   };
   
   const ilConfig = getILConfig();
-  const context = `静力法, L=${L}m, 目标=${targetType}, 当前值=${currentValue.toFixed(3)}`;
+  useEffect(() => {
+    sync(
+      { L, loadPos, targetType, sectionPos },
+      { currentValue, maxValue },
+    );
+  }, [L, loadPos, targetType, sectionPos, currentValue, maxValue, sync]);
+  const context = ctx.toPromptString();
+
+  const ilStaticHints = useMemo(() => getILStaticHints({ targetType, currentValue, maxValue, L }), [targetType, currentValue, maxValue, L]);
 
   const solveSteps = useMemo(() => {
-    const steps: { title: string; equation?: string; result?: string; explanation?: string }[] = [];
-    steps.push({ title: '放置单位荷载 P=1', equation: `x = ${x.toFixed(2)} m (${loadPos}%L)`, result: '荷载位置确定' });
+    const steps: { title: string; equation?: string; result?: string; explanation?: string; aiWhy?: string }[] = [];
+    steps.push({ title: '放置单位荷载 P=1', equation: `x = ${x.toFixed(2)} m (${loadPos}%L)`, result: '荷载位置确定', aiWhy: '影响线的定义：单位荷载 P=1 沿梁移动时，某个量的变化规律。每个位置对应一个影响线纵标。' });
     if (targetType === 'RA') {
       steps.push({ title: 'ΣMB=0 → RA', equation: `RA×L = 1×(L−x) → RA = 1−x/L`, result: `${currentValue.toFixed(4)}`, explanation: '线性递减：A处为1，B处为0' });
     } else if (targetType === 'RB') {
@@ -177,6 +193,9 @@ const StaticMethod: React.FC = () => {
         </div>
       </CollapsiblePanel>
       <div className="flex-1 flex flex-col gap-2 lg:gap-3 min-w-0">
+        {milestone && <LearningMilestone milestone={milestone} onDismiss={dismissMilestone} />}
+        <ProgressBar currentModule="静力法" />
+        <AIBubble message={bubble} />
         <div className="bg-white rounded-xl border border-slate-200/80 p-4 shadow-sm flex flex-col">
           <h4 className="text-xs font-semibold text-slate-600 mb-2">📐 结构示意 (P=1)</h4>
           <div className="flex-1 flex items-center justify-center">
@@ -211,8 +230,8 @@ const StaticMethod: React.FC = () => {
           <h4 className="text-xs font-semibold text-slate-600 mb-2">Σ 计算结果</h4>
           <div className="flex flex-wrap gap-2 md:gap-3">
             <ResultCard label="荷载位置 x" value={x.toFixed(2)} unit="m" color="purple" />
-            <ResultCard label={targetType} value={currentValue.toFixed(4)} unit={ilConfig.unit} color="blue" />
-            <ResultCard label="最大纵标" value={maxValue.toFixed(4)} unit={ilConfig.unit} color="red" />
+            <ResultCard label={targetType} value={currentValue.toFixed(4)} unit={ilConfig.unit} color="blue" aiHint={findHint(ilStaticHints, targetType)} />
+            <ResultCard label="最大纵标" value={maxValue.toFixed(4)} unit={ilConfig.unit} color="red" aiHint={findHint(ilStaticHints, '最大纵标')} />
             {(targetType === 'Mc' || targetType === 'Qc') && (
               <ResultCard label="截面C位置" value={c.toFixed(2)} unit="m" color="orange" />
             )}
@@ -237,6 +256,7 @@ const KinematicMethod: React.FC = () => {
   const [targetType, setTargetType] = useState<'RA' | 'RB' | 'Mc' | 'Qc'>('RA');
   const [sectionPos, setSectionPos] = useState(40);
   const [showDisplacement, setShowDisplacement] = useState(true);
+  const { bubble, sync, ctx, milestone, dismissMilestone } = useAIEngine({ module: 'influence', subModule: 'kinematic' });
   
   const c = (sectionPos / 100) * L;
   
@@ -270,23 +290,26 @@ const KinematicMethod: React.FC = () => {
   };
   
   const ilConfig = getILConfig();
-  const context = `机动法, L=${L}m, 目标=${targetType}`;
+  useEffect(() => {
+    sync({ L, targetType, sectionPos, showDisplacement }, { targetType });
+  }, [L, targetType, sectionPos, showDisplacement, sync]);
+  const context = ctx.toPromptString();
 
   const solveSteps = useMemo(() => {
-    const steps: { title: string; equation?: string; result?: string; explanation?: string }[] = [];
-    steps.push({ title: '① 去掉约束', result: ilConfig.principle });
-    steps.push({ title: '② 施加单位位移', equation: 'δ = 1', result: '沿约束方向给单位广义位移' });
+    const steps: { title: string; equation?: string; result?: string; explanation?: string; aiWhy?: string }[] = [];
+    steps.push({ title: '① 去掉约束', result: ilConfig.principle, aiWhy: '机动法的核心思路：去掉你要求的那个约束（反力→去支座，弯矩→加铰，剪力→切开），让结构变成机构。' });
+    steps.push({ title: '② 施加单位位移', equation: 'δ = 1', result: '沿约束方向给单位广义位移', aiWhy: '给单位位移而非单位力——这是虚功原理的要求。由 P·y = Z·δ，当δ=1时，y就直接等于影响线纵标。' });
     if (targetType === 'RA') {
-      steps.push({ title: '③ 画位移图', equation: '梁绕B转动，A点位移=1', result: '线性递减三角形', explanation: '任意点x处位移 y = 1−x/L' });
+      steps.push({ title: '③ 画位移图', equation: '梁绕B转动，A点位移=1', result: '线性递减三角形', explanation: '任意点x处位移 y = 1−x/L', aiWhy: '去掉A支座后梁只剩B支撑，绕B转动。A点给位移1，其他点按线性比例分配。' });
     } else if (targetType === 'RB') {
-      steps.push({ title: '③ 画位移图', equation: '梁绕A转动，B点位移=1', result: '线性递增三角形', explanation: '任意点x处位移 y = x/L' });
+      steps.push({ title: '③ 画位移图', equation: '梁绕A转动，B点位移=1', result: '线性递增三角形', explanation: '任意点x处位移 y = x/L', aiWhy: '去掉B支座后梁绕A转动。B点给位移1，越靠近B位移越大。' });
     } else if (targetType === 'Mc') {
       const maxMc = c * (L - c) / L;
-      steps.push({ title: '③ 画位移图', equation: 'C处加铰，相对转角θ=1', result: `折线形，峰值=${maxMc.toFixed(3)} m`, explanation: `在C处(${c.toFixed(1)}m)有尖角` });
+      steps.push({ title: '③ 画位移图', equation: 'C处加铰，相对转角θ=1', result: `折线形，峰值=${maxMc.toFixed(3)} m`, explanation: `在C处(${c.toFixed(1)}m)有尖角`, aiWhy: '加铰后两段分别绕端部支座转动，C点产生相对转角θ=1。最大纵标 = c(L-c)/L，与静力法结果一致。' });
     } else {
-      steps.push({ title: '③ 画位移图', equation: 'C处切开，相对位移δ=1', result: '两侧平行线段，C处突变', explanation: `左侧: −c/L = ${(-c/L).toFixed(3)}, 右侧: (L−c)/L = ${((L-c)/L).toFixed(3)}` });
+      steps.push({ title: '③ 画位移图', equation: 'C处切开，相对位移δ=1', result: '两侧平行线段，C处突变', explanation: `左侧: −c/L = ${(-c/L).toFixed(3)}, 右侧: (L−c)/L = ${((L-c)/L).toFixed(3)}`, aiWhy: '切开后两段各自竖向平移，保持平行（角度不变）。C处有正负突变，对应剪力影响线的特征。' });
     }
-    steps.push({ title: '④ 位移图即影响线', result: '虚功原理：P·y = Z·δ → y = IL纵标', explanation: '无需列方程，直接由几何关系得到' });
+    steps.push({ title: '④ 位移图即影响线', result: '虚功原理：P·y = Z·δ → y = IL纵标', explanation: '无需列方程，直接由几何关系得到', aiWhy: '这就是机动法的精髓——不用解方程！位移图的形状自动就是影响线。对于复杂结构（连续梁等），这比静力法简便得多。' });
     return steps;
   }, [targetType, L, c, ilConfig.principle]);
 
@@ -407,6 +430,9 @@ const KinematicMethod: React.FC = () => {
         </div>
       </CollapsiblePanel>
       <div className="flex-1 flex flex-col gap-2 lg:gap-3 min-w-0">
+        {milestone && <LearningMilestone milestone={milestone} onDismiss={dismissMilestone} />}
+        <ProgressBar currentModule="机动法" />
+        <AIBubble message={bubble} />
         <div className="bg-white rounded-xl border border-slate-200/80 p-4 shadow-sm flex flex-col">
           <h4 className="text-xs font-semibold text-slate-600 mb-2">📐 机动法原理图</h4>
           <div className="flex-1 flex items-center justify-center">{renderDisplacementDiagram()}</div>
@@ -441,6 +467,7 @@ const EnvelopeDiagram: React.FC = () => {
   const [loadSpacing, setLoadSpacing] = useState(2);
   const [loadMagnitude, setLoadMagnitude] = useState(100);
   const [showEnvelope, setShowEnvelope] = useState(true);
+  const { bubble, sync, ctx, milestone, dismissMilestone } = useAIEngine({ module: 'influence', subModule: 'envelope' });
   
   // 计算移动荷载组在不同位置时的弯矩
   const calculateMoments = () => {
@@ -488,14 +515,22 @@ const EnvelopeDiagram: React.FC = () => {
   const envelopeData = calculateMoments();
   const maxMoment = Math.max(...envelopeData.map(d => d.maxM));
   
-  const context = `内力包络图, L=${L}m, ${numLoads}个荷载, 间距${loadSpacing}m, P=${loadMagnitude}kN`;
+  useEffect(() => {
+    sync(
+      { L, numLoads, loadSpacing, loadMagnitude },
+      { maxMoment },
+    );
+  }, [L, numLoads, loadSpacing, loadMagnitude, maxMoment, sync]);
+  const context = ctx.toPromptString();
+
+  const envelopeHints = useMemo(() => getEnvelopeHints({ maxMoment, numLoads, loadMagnitude, L }), [maxMoment, numLoads, loadMagnitude, L]);
 
   const maxPoint = envelopeData.reduce((max, d) => d.maxM > max.maxM ? d : max, envelopeData[0]);
 
   const solveSteps = useMemo(() => [
-    { title: '定义荷载组', equation: `${numLoads}个集中力 P=${loadMagnitude}kN`, result: `荷载组总长 = ${((numLoads - 1) * loadSpacing).toFixed(1)} m`, explanation: `间距 ${loadSpacing} m` },
-    { title: '遍历所有截面', equation: `x ∈ [0, L], L=${L}m`, result: `共 ${envelopeData.length} 个截面`, explanation: '对每个截面求最大/最小弯矩' },
-    { title: '荷载组移动求极值', equation: '荷载组从左到右扫过全梁', result: '每个位置叠加各荷载贡献', explanation: 'M = ΣPᵢ·yᵢ (影响线法)' },
+    { title: '定义荷载组', equation: `${numLoads}个集中力 P=${loadMagnitude}kN`, result: `荷载组总长 = ${((numLoads - 1) * loadSpacing).toFixed(1)} m`, explanation: `间距 ${loadSpacing} m`, aiWhy: '包络图用于确定移动荷载下的最不利位置。先定义荷载组的参数：荷载数、大小、间距。' },
+    { title: '遍历所有截面', equation: `x ∈ [0, L], L=${L}m`, result: `共 ${envelopeData.length} 个截面`, explanation: '对每个截面求最大/最小弯矩', aiWhy: '包络图需要对每个截面都求弯矩极值，这样才能找到全梁最危险的截面。' },
+    { title: '荷载组移动求极值', equation: '荷载组从左到右扫过全梁', result: '每个位置叠加各荷载贡献', explanation: 'M = ΣPᵢ·yᵢ (影响线法)', aiWhy: '利用影响线叠加原理：各荷载在该截面的贡献 = Pᵢ × 该位置的影响线纵标yᵢ。' },
     { title: '绝对最大弯矩', equation: `位于 x = ${(maxPoint.x * L).toFixed(2)} m`, result: `Mmax = ${maxMoment.toFixed(0)} kN·m`, explanation: '包络图最高点，最危险截面' },
   ], [numLoads, loadMagnitude, loadSpacing, L, envelopeData.length, maxPoint, maxMoment]);
 
@@ -576,6 +611,9 @@ const EnvelopeDiagram: React.FC = () => {
         </div>
       </CollapsiblePanel>
       <div className="flex-1 flex flex-col gap-2 lg:gap-3 min-w-0">
+        {milestone && <LearningMilestone milestone={milestone} onDismiss={dismissMilestone} />}
+        <ProgressBar currentModule="包络图" />
+        <AIBubble message={bubble} />
         <div className="bg-white rounded-xl border border-slate-200/80 p-4 shadow-sm flex flex-col">
           <h4 className="text-xs font-semibold text-slate-600 mb-2">📐 弯矩包络图</h4>
           <div className="flex-1 flex items-center justify-center">{renderEnvelope()}</div>
@@ -584,7 +622,7 @@ const EnvelopeDiagram: React.FC = () => {
         <div className="bg-white rounded-xl border border-slate-200/80 p-4 shadow-sm">
           <h4 className="text-xs font-semibold text-slate-600 mb-2">Σ 计算结果</h4>
           <div className="flex flex-wrap gap-2 md:gap-3">
-            <ResultCard label="最大弯矩" value={maxMoment.toFixed(0)} unit="kN·m" color="red" />
+            <ResultCard label="最大弯矩" value={maxMoment.toFixed(0)} unit="kN·m" color="red" aiHint={findHint(envelopeHints, '最大弯矩')} />
             <ResultCard label="荷载总数" value={numLoads.toString()} unit="个" color="blue" />
             <ResultCard label="荷载组长度" value={((numLoads - 1) * loadSpacing).toFixed(1)} unit="m" color="green" />
             <ResultCard label="单个荷载" value={loadMagnitude.toString()} unit="kN" color="purple" />
@@ -609,6 +647,7 @@ const InfluenceApplication: React.FC = () => {
   const [P, setP] = useState(50);
   const [q, setQ] = useState(20);
   const [loadPos, setLoadPos] = useState(50);
+  const { bubble, sync, ctx, milestone, dismissMilestone } = useAIEngine({ module: 'influence', subModule: 'application' });
   
   const c = (sectionPos / 100) * L;
   const x = (loadPos / 100) * L;
@@ -638,11 +677,19 @@ const InfluenceApplication: React.FC = () => {
   const Mc = calculateMc();
   const maxIL = c * (L - c) / L;
   
-  const context = `影响线应用, L=${L}m, 截面C=${sectionPos}%, Mc=${Mc.toFixed(1)}kN·m`;
+  useEffect(() => {
+    sync(
+      { L, sectionPos, loadType, P, q, loadPos },
+      { Mc, maxIL },
+    );
+  }, [L, sectionPos, loadType, P, q, loadPos, Mc, maxIL, sync]);
+  const context = ctx.toPromptString();
+
+  const appHints = useMemo(() => getApplicationHints({ loadType, Mc, maxIL, P, q }), [loadType, Mc, maxIL, P, q]);
 
   const solveSteps = useMemo(() => {
-    const steps: { title: string; equation?: string; result?: string; explanation?: string }[] = [];
-    steps.push({ title: '确定影响线', equation: `Mc影响线，C在 ${c.toFixed(2)}m`, result: `最大纵标 = ${maxIL.toFixed(4)} m` });
+    const steps: { title: string; equation?: string; result?: string; explanation?: string; aiWhy?: string }[] = [];
+    steps.push({ title: '确定影响线', equation: `Mc影响线，C在 ${c.toFixed(2)}m`, result: `最大纵标 = ${maxIL.toFixed(4)} m`, aiWhy: '影响线的应用第一步：先画出目标量的影响线。Mc影响线是三角形，顶点在C处。' });
     if (loadType === 'point') {
       const y = getMcIL(x);
       steps.push({ title: '集中力 P 作用', equation: `Mc = P × y = ${P} × ${y.toFixed(4)}`, result: `${Mc.toFixed(2)} kN·m`, explanation: `y为x=${x.toFixed(2)}m处的影响线纵标` });
@@ -769,6 +816,9 @@ const InfluenceApplication: React.FC = () => {
         </div>
       </CollapsiblePanel>
       <div className="flex-1 flex flex-col gap-2 lg:gap-3 min-w-0">
+        {milestone && <LearningMilestone milestone={milestone} onDismiss={dismissMilestone} />}
+        <ProgressBar currentModule="影响线应用" />
+        <AIBubble message={bubble} />
         <div className="bg-white rounded-xl border border-slate-200/80 p-4 shadow-sm flex flex-col">
           <h4 className="text-xs font-semibold text-slate-600 mb-2">📐 利用影响线计算内力</h4>
           <div className="flex-1 flex items-center justify-center">{renderApplication()}</div>
@@ -777,8 +827,8 @@ const InfluenceApplication: React.FC = () => {
         <div className="bg-white rounded-xl border border-slate-200/80 p-4 shadow-sm">
           <h4 className="text-xs font-semibold text-slate-600 mb-2">Σ 计算结果</h4>
           <div className="flex flex-wrap gap-2 md:gap-3">
-            <ResultCard label="截面C弯矩 Mc" value={Mc.toFixed(1)} unit="kN·m" color="red" />
-            <ResultCard label="影响线最大纵标" value={maxIL.toFixed(3)} unit="m" color="blue" />
+            <ResultCard label="截面C弯矩 Mc" value={Mc.toFixed(1)} unit="kN·m" color="red" aiHint={findHint(appHints, 'Mc')} />
+            <ResultCard label="影响线最大纵标" value={maxIL.toFixed(3)} unit="m" color="blue" aiHint={findHint(appHints, '最大纵标')} />
             <ResultCard label="截面C位置" value={c.toFixed(2)} unit="m" color="orange" />
           </div>
           <div className="flex gap-3 text-xs mt-3 pt-3 border-t border-slate-100">

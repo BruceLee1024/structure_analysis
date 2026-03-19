@@ -8,10 +8,15 @@ const COLORS: Record<string, string> = {
   orange: 'bg-gradient-to-br from-orange-50 to-orange-100/50 text-orange-700 border-orange-200',
 };
 
-const ResultCard: React.FC<{ label: string; value: string; unit: string; color?: string }> = ({ label, value, unit, color = 'blue' }) => (
+const ResultCard: React.FC<{ label: string; value: string; unit: string; color?: string; aiHint?: string }> = ({ label, value, unit, color = 'blue', aiHint }) => (
   <div className={`${COLORS[color] ?? COLORS.blue} rounded-lg p-2.5 text-center flex-1 min-w-[90px] border`}>
     <div className="text-[11px] text-slate-500 mb-0.5 truncate">{label}</div>
     <div className="text-base font-bold leading-tight">{value} <span className="text-[10px] font-medium opacity-80">{unit}</span></div>
+    {aiHint && (
+      <div className="mt-1 pt-1 border-t border-current/10 text-[10px] leading-snug opacity-70 text-left">
+        💡 {aiHint}
+      </div>
+    )}
   </div>
 );
 
