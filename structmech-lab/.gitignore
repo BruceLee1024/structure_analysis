@@ -25,3 +25,4 @@ dist-ssr
 
 # Activation code generator (private)
 activation-generator.html
+.vercel

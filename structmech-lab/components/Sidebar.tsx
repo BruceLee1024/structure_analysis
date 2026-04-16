@@ -2,7 +2,8 @@ import React from 'react';
 import { ModuleType, StaticSubModule, InfluenceSubModule } from '../types';
 import {
   Beaker, Calculator, GitBranch, ChevronDown, ChevronRight, Shapes, Minus, Square,
-  Triangle, Archive, Layers, TrendingUp, Activity, Zap, BarChart3, Home, Settings, Lock
+  Triangle, Archive, Layers, TrendingUp, Activity, Zap, BarChart3, Home, Settings, Lock,
+  PanelLeftClose, PanelLeftOpen
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -12,6 +13,8 @@ interface SidebarProps {
   staticExpanded: boolean;
   influenceExpanded: boolean;
   isActivated: boolean;
+  collapsed: boolean;
+  onToggleCollapse: () => void;
   onStaticClick: () => void;
   onStaticSubClick: (sub: StaticSubModule) => void;
   onInfluenceClick: () => void;
@@ -40,31 +43,33 @@ const influenceSubModules: { id: InfluenceSubModule; name: string; icon: React.R
 const Sidebar: React.FC<SidebarProps> = ({
   activeModule, activeStaticSub, activeInfluenceSub,
   staticExpanded, influenceExpanded, isActivated,
+  collapsed, onToggleCollapse,
   onStaticClick, onStaticSubClick, onInfluenceClick, onInfluenceSubClick,
   onSolverClick, onGoHome, onShowSettings,
 }) => {
   return (
-    <aside className="flex w-64 xl:w-72 h-full flex-col bg-white border-r border-slate-200 shadow-xl z-10 flex-shrink-0">
-      <div className="p-6 border-b border-slate-100 flex items-center gap-4 bg-gradient-to-r from-blue-50 to-indigo-50">
-        <div className="bg-gradient-to-br from-blue-600 to-indigo-600 p-3 rounded-xl text-white shadow-lg"><Beaker size={26} /></div>
-        <div>
-          <h1 className="font-bold text-xl tracking-tight text-slate-900">StructLab</h1>
-          <p className="text-sm text-slate-500">结构力学可视化</p>
-        </div>
+    <aside className={`flex h-full flex-col bg-white border-r border-slate-200 shadow-xl z-10 flex-shrink-0 transition-all duration-300 ${collapsed ? 'w-[68px]' : 'w-64 xl:w-72'}`}>
+      <div className={`border-b border-slate-100 flex items-center bg-gradient-to-r from-blue-50 to-indigo-50 ${collapsed ? 'p-4 justify-center' : 'p-6 gap-4'}`}>
+        <div className="bg-gradient-to-br from-blue-600 to-indigo-600 p-2.5 rounded-xl text-white shadow-lg flex-shrink-0"><Beaker size={collapsed ? 22 : 26} /></div>
+        {!collapsed && (
+          <div className="min-w-0">
+            <h1 className="font-bold text-xl tracking-tight text-slate-900">StructLab</h1>
+            <p className="text-sm text-slate-500 truncate">结构力学可视化</p>
+          </div>
+        )}
       </div>
 
-      <nav className="flex-1 p-4 overflow-y-auto">
-        <button onClick={onGoHome} className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-semibold transition-all mb-2 text-slate-600 hover:bg-slate-50">
-          <Home size={20} /><span>返回主页</span>
+      <nav className={`flex-1 overflow-y-auto ${collapsed ? 'p-2' : 'p-4'}`}>
+        <button onClick={onGoHome} title="返回主页" className={`w-full flex items-center rounded-xl text-sm font-semibold transition-all mb-2 text-slate-600 hover:bg-slate-50 ${collapsed ? 'justify-center p-3' : 'gap-3 px-4 py-3'}`}>
+          <Home size={20} />{!collapsed && <span>返回主页</span>}
         </button>
 
         {/* 静定结构 */}
         <div className="mb-2">
-          <button onClick={onStaticClick} className={`w-full flex items-center justify-between px-4 py-3 rounded-xl text-sm font-semibold transition-all ${activeModule === ModuleType.STATIC ? 'bg-blue-50 text-blue-700 shadow-sm' : 'text-slate-600 hover:bg-slate-50'}`}>
-            <div className="flex items-center gap-3"><GitBranch size={20} /><span>静定结构</span></div>
-            {staticExpanded ? <ChevronDown size={18} /> : <ChevronRight size={18} />}
+          <button onClick={onStaticClick} title="静定结构" className={`w-full flex items-center rounded-xl text-sm font-semibold transition-all ${activeModule === ModuleType.STATIC ? 'bg-blue-50 text-blue-700 shadow-sm' : 'text-slate-600 hover:bg-slate-50'} ${collapsed ? 'justify-center p-3' : 'justify-between px-4 py-3'}`}>
+            {collapsed ? <GitBranch size={20} /> : (<><div className="flex items-center gap-3"><GitBranch size={20} /><span>静定结构</span></div>{staticExpanded ? <ChevronDown size={18} /> : <ChevronRight size={18} />}</>)}
           </button>
-          {staticExpanded && (
+          {!collapsed && staticExpanded && (
             <div className="ml-4 mt-2 border-l-2 border-slate-200 pl-3 space-y-1">
               {staticSubModules.map(sub => (
                 <button key={sub.id} onClick={() => onStaticSubClick(sub.id)} className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm font-medium transition-all ${activeModule === ModuleType.STATIC && activeStaticSub === sub.id ? 'bg-blue-100 text-blue-700 shadow-sm' : 'text-slate-500 hover:bg-slate-50 hover:text-slate-700'}`}>
@@ -77,11 +82,10 @@ const Sidebar: React.FC<SidebarProps> = ({
 
         {/* 影响线 */}
         <div className="mb-2">
-          <button onClick={onInfluenceClick} className={`w-full flex items-center justify-between px-4 py-3 rounded-xl text-sm font-semibold transition-all ${activeModule === ModuleType.INFLUENCE ? 'bg-blue-50 text-blue-700 shadow-sm' : 'text-slate-600 hover:bg-slate-50'}`}>
-            <div className="flex items-center gap-3"><TrendingUp size={20} /><span>影响线</span></div>
-            {influenceExpanded ? <ChevronDown size={18} /> : <ChevronRight size={18} />}
+          <button onClick={onInfluenceClick} title="影响线" className={`w-full flex items-center rounded-xl text-sm font-semibold transition-all ${activeModule === ModuleType.INFLUENCE ? 'bg-blue-50 text-blue-700 shadow-sm' : 'text-slate-600 hover:bg-slate-50'} ${collapsed ? 'justify-center p-3' : 'justify-between px-4 py-3'}`}>
+            {collapsed ? <TrendingUp size={20} /> : (<><div className="flex items-center gap-3"><TrendingUp size={20} /><span>影响线</span></div>{influenceExpanded ? <ChevronDown size={18} /> : <ChevronRight size={18} />}</>)}
           </button>
-          {influenceExpanded && (
+          {!collapsed && influenceExpanded && (
             <div className="ml-4 mt-2 border-l-2 border-slate-200 pl-3 space-y-1">
               {influenceSubModules.map(sub => (
                 <button key={sub.id} onClick={() => onInfluenceSubClick(sub.id)} className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm font-medium transition-all ${activeModule === ModuleType.INFLUENCE && activeInfluenceSub === sub.id ? 'bg-blue-100 text-blue-700 shadow-sm' : 'text-slate-500 hover:bg-slate-50 hover:text-slate-700'}`}>
@@ -92,18 +96,22 @@ const Sidebar: React.FC<SidebarProps> = ({
           )}
         </div>
 
-        <button onClick={onSolverClick} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-semibold transition-all ${activeModule === ModuleType.SOLVER ? 'bg-blue-50 text-blue-700 shadow-sm' : 'text-slate-600 hover:bg-slate-50'}`}>
+        <button onClick={onSolverClick} title="结构求解器" className={`w-full flex items-center rounded-xl text-sm font-semibold transition-all ${activeModule === ModuleType.SOLVER ? 'bg-blue-50 text-blue-700 shadow-sm' : 'text-slate-600 hover:bg-slate-50'} ${collapsed ? 'justify-center p-3' : 'gap-3 px-4 py-3'}`}>
           <Calculator size={20} />
-          <span>结构求解器</span>
-          {!isActivated && <Lock size={14} className="ml-auto text-amber-500" />}
+          {!collapsed && <span>结构求解器</span>}
+          {!collapsed && !isActivated && <Lock size={14} className="ml-auto text-amber-500" />}
+          {collapsed && !isActivated && <span className="absolute top-1 right-1"><Lock size={10} className="text-amber-500" /></span>}
         </button>
       </nav>
 
-      <div className="p-4 border-t border-slate-100 space-y-3">
-        <button onClick={onShowSettings} className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-semibold transition-all text-slate-600 hover:bg-slate-50 hover:text-indigo-600 group">
-          <Settings size={20} className="group-hover:rotate-90 transition-transform duration-500" /><span>设置</span>
+      <div className={`border-t border-slate-100 ${collapsed ? 'p-2 space-y-2' : 'p-4 space-y-3'}`}>
+        <button onClick={onShowSettings} title="设置" className={`w-full flex items-center rounded-xl text-sm font-semibold transition-all text-slate-600 hover:bg-slate-50 hover:text-indigo-600 group ${collapsed ? 'justify-center p-3' : 'gap-3 px-4 py-3'}`}>
+          <Settings size={20} className="group-hover:rotate-90 transition-transform duration-500" />{!collapsed && <span>设置</span>}
         </button>
-        <div className="bg-gradient-to-r from-slate-50 to-slate-100 p-3 rounded-xl text-xs text-slate-500"><strong className="text-slate-700">Version 3.0</strong> · 静定结构分析</div>
+        <button onClick={onToggleCollapse} title={collapsed ? '展开侧边栏' : '收起侧边栏'} className={`w-full flex items-center rounded-xl text-sm font-semibold transition-all text-slate-400 hover:bg-slate-50 hover:text-slate-600 ${collapsed ? 'justify-center p-3' : 'gap-3 px-4 py-3'}`}>
+          {collapsed ? <PanelLeftOpen size={20} /> : <><PanelLeftClose size={20} /><span>收起侧边栏</span></>}
+        </button>
+        {!collapsed && <div className="bg-gradient-to-r from-slate-50 to-slate-100 p-3 rounded-xl text-xs text-slate-500"><strong className="text-slate-700">Version 3.0</strong> · 静定结构分析</div>}
       </div>
     </aside>
   );

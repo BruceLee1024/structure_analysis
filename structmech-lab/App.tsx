@@ -45,6 +45,15 @@ const App: React.FC = () => {
   const [activeStaticSub, setActiveStaticSub] = useState<StaticSubModule>('geometry');
   const [activeInfluenceSub, setActiveInfluenceSub] = useState<InfluenceSubModule>('static');
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
+    return localStorage.getItem('sidebarCollapsed') === 'true';
+  });
+  const toggleSidebarCollapse = () => {
+    setSidebarCollapsed(prev => {
+      localStorage.setItem('sidebarCollapsed', String(!prev));
+      return !prev;
+    });
+  };
 
   // 设置面板状态
   const [showSettings, setShowSettings] = useState(false);
@@ -133,6 +142,8 @@ const App: React.FC = () => {
           staticExpanded={staticExpanded}
           influenceExpanded={influenceExpanded}
           isActivated={isActivated}
+          collapsed={sidebarCollapsed}
+          onToggleCollapse={toggleSidebarCollapse}
           onStaticClick={handleStaticClick}
           onStaticSubClick={(sub) => { handleStaticSubClick(sub); closeSidebar(); }}
           onInfluenceClick={handleInfluenceClick}
