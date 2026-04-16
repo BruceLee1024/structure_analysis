@@ -67,6 +67,8 @@ export interface SolverParams {
   numSpans: number;
   numStories: number;
   numBays: number;
+  overhangLeft: number;
+  overhangRight: number;
   elasticModulus: number;
   crossSectionArea: number;
   momentOfInertia: number;

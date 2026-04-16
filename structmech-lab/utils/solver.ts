@@ -347,6 +347,13 @@ export const solveStructure = (nodes: SolverNode[], elements: SolverElement[], l
     });
   });
 
+  // Regularize near-zero diagonal entries (internal hinges cause zero rotational stiffness)
+  for (let i = 0; i < totalDOF; i++) {
+    if (Math.abs(K_reduced[i][i]) < 1e-12 && F_reduced[i] === 0) {
+      K_reduced[i][i] = 1e-10;
+    }
+  }
+
   const { x: U, singularCount } = solveLinearSystem(K_reduced, F_reduced);
   const solverError = singularCount > 0 ? `刚度矩阵奇异（${singularCount} 个自由度无法求解），结构可能约束不足或存在机构` : undefined;
 

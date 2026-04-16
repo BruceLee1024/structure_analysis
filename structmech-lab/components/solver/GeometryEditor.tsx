@@ -5,9 +5,13 @@ import { autoConnectNodes } from '../../utils/geometryGenerator';
 interface GeometryEditorProps {
   params: SolverParams;
   setParams: React.Dispatch<React.SetStateAction<SolverParams>>;
+  className?: string;
+  showHeader?: boolean;
 }
 
-const GeometryEditor: React.FC<GeometryEditorProps> = ({ params, setParams }) => {
+const defaultClassName = 'hidden xl:flex w-60 2xl:w-72 bg-slate-900 p-4 flex-col gap-4 overflow-y-auto border-l border-slate-800 h-full flex-shrink-0';
+
+const GeometryEditor: React.FC<GeometryEditorProps> = ({ params, setParams, className, showHeader = true }) => {
   const handleChange = (key: keyof SolverParams, value: any) => {
     setParams(prev => ({ ...prev, [key]: value }));
   };
@@ -31,6 +35,7 @@ const GeometryEditor: React.FC<GeometryEditorProps> = ({ params, setParams }) =>
 
   const getNodeSupportType = (r: [boolean, boolean, boolean]) => {
       if (r[0] && r[1] && r[2]) return 'Fixed';
+      if (!r[0] && r[1] && r[2]) return 'Guided';
       if (r[0] && r[1] && !r[2]) return 'Pinned';
       if (!r[0] && r[1] && !r[2]) return 'RollerY';
       if (r[0] && !r[1] && !r[2]) return 'RollerX';
@@ -43,6 +48,7 @@ const GeometryEditor: React.FC<GeometryEditorProps> = ({ params, setParams }) =>
       let r: [boolean, boolean, boolean] = [false, false, false];
       switch (type) {
           case 'Fixed': r = [true, true, true]; break;
+          case 'Guided': r = [false, true, true]; break;
           case 'Pinned': r = [true, true, false]; break;
           case 'RollerY': r = [false, true, false]; break;
           case 'RollerX': r = [true, false, false]; break;
@@ -104,11 +110,13 @@ const GeometryEditor: React.FC<GeometryEditorProps> = ({ params, setParams }) =>
   };
 
   return (
-    <div className="w-72 bg-slate-900 p-4 flex flex-col gap-4 overflow-y-auto border-l border-slate-800 h-full flex-shrink-0">
-        <div>
-            <h2 className="text-xs font-bold text-violet-400 uppercase tracking-wider mb-0.5">几何建模</h2>
-            <p className="text-[10px] text-slate-400">节点与单元编辑器</p>
-        </div>
+    <div className={className ?? defaultClassName}>
+        {showHeader ? (
+            <div>
+                <h2 className="text-xs font-bold text-violet-400 uppercase tracking-wider mb-0.5">几何建模</h2>
+                <p className="text-[10px] text-slate-400">节点与单元编辑器</p>
+            </div>
+        ) : null}
 
         <div className="flex-1 min-h-0 flex flex-col">
             <div className="flex justify-between items-center mb-1">
@@ -135,6 +143,7 @@ const GeometryEditor: React.FC<GeometryEditorProps> = ({ params, setParams }) =>
                             <select value={getNodeSupportType(n.restraints)} onChange={(e) => setNodeSupport(n.id, e.target.value)}
                                 className="bg-slate-900 w-full p-0.5 rounded border border-slate-700 text-white text-[9px] focus:border-violet-500 outline-none appearance-none cursor-pointer hover:bg-slate-800 text-center">
                                 <option value="Fixed">Fixed</option>
+                                <option value="Guided">Guided</option>
                                 <option value="Pinned">Pinned</option>
                                 <option value="RollerY">Roller-Y</option>
                                 <option value="RollerX">Roller-X</option>

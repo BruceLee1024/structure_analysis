@@ -93,11 +93,17 @@ const DiagramView = React.memo(({
                     <g key={n.id} transform={`translate(${p.x}, ${p.y})`}>
                         {n.restraints.some(r=>r) && (
                             <g>
-                                {n.restraints[2] ? ( 
+                                {n.restraints[0] && n.restraints[1] && n.restraints[2] ? ( 
+                                    /* Fixed: wall + hatching */
                                     <g><rect x="-10" y="0" width="20" height="4" fill="#94a3b8"/><line x1="-8" y1="4" x2="-12" y2="10" stroke="#64748b"/><line x1="0" y1="4" x2="-4" y2="10" stroke="#64748b"/><line x1="8" y1="4" x2="4" y2="10" stroke="#64748b"/></g>
+                                ) : !n.restraints[0] && n.restraints[1] && n.restraints[2] ? (
+                                    /* Guided: wall + two horizontal rails */
+                                    <g><rect x="-10" y="2" width="20" height="4" fill="#94a3b8"/><line x1="-12" y1="0" x2="-12" y2="10" stroke="#64748b" strokeWidth="2"/><line x1="-12" y1="2" x2="-14" y2="6" stroke="#64748b"/><line x1="-12" y1="6" x2="-14" y2="10" stroke="#64748b"/></g>
                                 ) : n.restraints[0] && n.restraints[1] ? ( 
+                                    /* Pin: triangle */
                                     <polygon points="0,0 -8,12 8,12" fill="#94a3b8"/>
                                 ) : ( 
+                                    /* Roller: circle + line */
                                     <g><circle cx="0" cy="5" r="5" fill="#94a3b8"/><line x1="-8" y1="12" x2="8" y2="12" stroke="#64748b" strokeWidth="2"/></g>
                                 )}
                             </g>
@@ -546,7 +552,7 @@ const StructureVisualizer: React.FC<StructureVisualizerProps> = ({ params, nodes
   }), [nodes, elements, results, loads, transform, activeLocation, setActiveLocation, onAddLoad, maxValues, params.structureType]);
 
   return (
-      <div className="flex flex-col w-full max-w-6xl mx-auto h-full gap-2">
+      <div className="flex h-full w-full flex-col gap-2">
           <div className="flex-1 min-h-0 rounded-xl border border-slate-700 overflow-hidden shadow-sm relative">
               <DiagramView mode="Editor" title="结构模型 (Structure Model)" showLoads interactive {...viewProps} />
           </div>

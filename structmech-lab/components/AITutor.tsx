@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Send, Bot, RefreshCw, Lightbulb } from 'lucide-react';
-import { AI_MODELS } from '../utils/aiModels';
+import { sendChatCompletion } from '../utils/aiClient';
 
 interface Message {
   role: 'assistant' | 'user';
@@ -47,14 +47,6 @@ const AITutor: React.FC<AITutorProps> = ({ context, moduleTitle, suggestedQuesti
   };
 
   const callAIAPI = async (userMessage: string): Promise<string> => {
-    const apiKey = localStorage.getItem('ai_api_key');
-    const modelId = localStorage.getItem('ai_model') || 'deepseek';
-    const model = AI_MODELS.find(m => m.id === modelId) || AI_MODELS[0];
-    
-    if (!apiKey) {
-      return '⚠️ 未配置 API Key。请点击左侧"设置"按钮配置 AI 模型和 API Key。';
-    }
-
     const systemPrompt = `你是一位经验丰富的结构力学教师，名叫"结构力学助教"。你的教学风格是：
 1. 启发式教学：不直接给答案，而是通过提问引导学生思考
 2. 循序渐进：从简单概念开始，逐步深入
@@ -72,33 +64,21 @@ const AITutor: React.FC<AITutorProps> = ({ context, moduleTitle, suggestedQuesti
 
     try {
       setIsConnected(true);
-      const response = await fetch(model.apiUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${apiKey}`,
-        },
-        body: JSON.stringify({
-          model: model.model,
-          messages: [
-            { role: 'system', content: systemPrompt },
-            ...messages.map(m => ({ role: m.role, content: m.content })),
-            { role: 'user', content: userMessage },
-          ],
-          max_tokens: 300,
-          temperature: 0.7,
-        }),
-      });
-
-      if (!response.ok) {
-        throw new Error(`API error: ${response.status}`);
-      }
-
-      const data = await response.json();
-      return data.choices[0]?.message?.content || '抱歉，我没有理解你的问题。';
+      const response = await sendChatCompletion(
+        [
+          { role: 'system', content: systemPrompt },
+          ...messages.map(m => ({ role: m.role, content: m.content })),
+          { role: 'user', content: userMessage },
+        ],
+        { maxTokens: 300, temperature: 0.7 },
+      );
+      return response || '抱歉，我没有理解你的问题。';
     } catch (error) {
       console.error('AI API error:', error);
       setIsConnected(false);
+      if (error instanceof Error && error.message === '未配置 API Key') {
+        return '⚠️ 未配置 API Key。请点击左侧"设置"按钮配置 AI 模型和 API Key。';
+      }
       return '⚠️ 连接失败，请检查网络或API配置。';
     }
   };

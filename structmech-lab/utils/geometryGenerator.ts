@@ -10,7 +10,9 @@ export const generateGeometry = (
     I: number,
     numSpans: number = 2,
     numStories: number = 2,
-    numBays: number = 2
+    numBays: number = 2,
+    overhangLeft: number = 0,
+    overhangRight: number = 0,
 ): { nodes: SolverNode[], elements: SolverElement[] } => {
     const nodes: SolverNode[] = [];
     const elements: SolverElement[] = [];
@@ -32,20 +34,40 @@ export const generateGeometry = (
     };
 
     if (type === StructureType.Beam) {
+        const oL = overhangLeft > 0 ? overhangLeft : 0;
+        const oR = overhangRight > 0 ? overhangRight : 0;
+        const xStart = -oL;
+        // Overhang left free end
+        if (oL > 0) addNode(xStart, 0, [false, false, false]);
+        // Left support
         addNode(0, 0, [true, true, false]);
+        // Mid support
         addNode(width / 2, 0, [false, true, false]);
+        // Right support
         addNode(width, 0, [false, true, false]);
-        addEl(1, 2);
-        addEl(2, 3);
+        // Overhang right free end
+        if (oR > 0) addNode(width + oR, 0, [false, false, false]);
+        // Connect all nodes sequentially
+        for (let i = 1; i < nodeIdCounter - 1; i++) {
+            addEl(i, i + 1);
+        }
     }
     else if (type === StructureType.MultiSpanBeam) {
         const spanLen = width / numSpans;
+        const oL = overhangLeft > 0 ? overhangLeft : 0;
+        const oR = overhangRight > 0 ? overhangRight : 0;
+        // Overhang left free end
+        if (oL > 0) addNode(-oL, 0, [false, false, false]);
+        // Support nodes
         for (let i = 0; i <= numSpans; i++) {
             const restraints: [boolean, boolean, boolean] = i === 0 ? [true, true, false] : [false, true, false];
             addNode(i * spanLen, 0, restraints);
-            if (i > 0) {
-                addEl(i, i + 1);
-            }
+        }
+        // Overhang right free end
+        if (oR > 0) addNode(width + oR, 0, [false, false, false]);
+        // Connect all nodes sequentially
+        for (let i = 1; i < nodeIdCounter - 1; i++) {
+            addEl(i, i + 1);
         }
     }
     else if (type === StructureType.PortalFrame) {
@@ -55,7 +77,7 @@ export const generateGeometry = (
         addNode(width, 0, [true, true, true]);
         addEl(1, 2);
         addEl(2, 3);
-        addEl(3, 4);
+        addEl(4, 3);
     }
     else if (type === StructureType.MultiStoryFrame) {
         const bayWidth = width / numBays;
@@ -93,7 +115,7 @@ export const generateGeometry = (
         addEl(1, 2);
         addEl(2, 3);
         addEl(3, 4);
-        addEl(4, 5);
+        addEl(5, 4);
     }
     else if (type === StructureType.Truss) {
         const panels = Math.max(2, Math.floor(numSpans));
@@ -118,9 +140,10 @@ export const generateGeometry = (
         addEl(panels + 1, offset + panels + 1, true, true);
     }
     else if (type === StructureType.Cantilever) {
+        // 悬臂梁：左端固定，右端自由
         addNode(0, 0, [true, true, true]);
-        addNode(0, height, [false, false, false]);
-        addNode(width, height, [false, false, false]);
+        addNode(width / 2, 0, [false, false, false]);
+        addNode(width, 0, [false, false, false]);
         addEl(1, 2);
         addEl(2, 3);
     }

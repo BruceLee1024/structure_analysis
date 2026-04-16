@@ -10,8 +10,10 @@
       "DOM.Iterable"
     ],
     "skipLibCheck": true,
+    "baseUrl": ".",
     "types": [
-      "node"
+      "node",
+      "vitest/globals"
     ],
     "moduleResolution": "bundler",
     "isolatedModules": true,

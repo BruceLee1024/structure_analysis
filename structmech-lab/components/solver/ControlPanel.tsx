@@ -1,11 +1,64 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { SolverParams, StructureType, Load } from '../../types';
+import GeometryEditor from './GeometryEditor';
 
 interface ControlPanelProps {
   params: SolverParams;
   setParams: React.Dispatch<React.SetStateAction<SolverParams>>;
   onClearLoads: () => void;
 }
+
+interface CollapsibleSectionProps {
+  title: string;
+  accentClass: string;
+  defaultOpen?: boolean;
+  subtitle?: string;
+  headerRight?: React.ReactNode;
+  className?: string;
+  contentClassName?: string;
+  children: React.ReactNode;
+}
+
+const CollapsibleSection: React.FC<CollapsibleSectionProps> = ({
+  title,
+  accentClass,
+  defaultOpen = true,
+  subtitle,
+  headerRight,
+  className,
+  contentClassName,
+  children,
+}) => {
+  const [isOpen, setIsOpen] = useState(defaultOpen);
+
+  return (
+    <div className={className ?? 'space-y-2 border-t border-slate-800 pt-3'}>
+      <button
+        type="button"
+        onClick={() => setIsOpen(prev => !prev)}
+        className="flex w-full items-center justify-between rounded-xl border border-slate-800 bg-slate-900/60 px-3 py-2 text-left transition-colors hover:bg-slate-800/80"
+      >
+        <div>
+          <h3 className={`text-xs font-semibold uppercase tracking-wider ${accentClass}`}>{title}</h3>
+          {subtitle ? <p className="mt-0.5 text-[10px] text-slate-500">{subtitle}</p> : null}
+        </div>
+        <div className="flex items-center gap-2">
+          {headerRight}
+          <svg
+            className={`h-3.5 w-3.5 text-slate-500 transition-transform ${isOpen ? 'rotate-180' : ''}`}
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+          </svg>
+        </div>
+      </button>
+
+      {isOpen ? <div className={contentClassName}>{children}</div> : null}
+    </div>
+  );
+};
 
 const ControlPanel: React.FC<ControlPanelProps> = ({ params, setParams, onClearLoads }) => {
   const handleChange = (key: keyof SolverParams, value: any) => {
@@ -68,13 +121,14 @@ const ControlPanel: React.FC<ControlPanelProps> = ({ params, setParams, onClearL
   const isAxiallyRigid = params.stiffnessType === 'AxiallyRigid';
   const isRigid = params.stiffnessType === 'Rigid';
   const showWidth = params.structureType !== StructureType.Custom;
-  const showHeight = params.structureType !== StructureType.Custom && params.structureType !== StructureType.Beam && params.structureType !== StructureType.MultiSpanBeam;
+  const showHeight = params.structureType !== StructureType.Custom && params.structureType !== StructureType.Beam && params.structureType !== StructureType.MultiSpanBeam && params.structureType !== StructureType.Cantilever;
   const showRoof = params.structureType === StructureType.GableFrame;
   const showSpans = params.structureType === StructureType.MultiSpanBeam || params.structureType === StructureType.Truss;
   const showFrameGrid = params.structureType === StructureType.MultiStoryFrame;
+  const showOverhang = params.structureType === StructureType.Beam || params.structureType === StructureType.MultiSpanBeam;
 
   return (
-    <div className="w-72 flex-shrink-0 bg-slate-900 p-4 flex flex-col gap-4 overflow-y-auto border-r border-slate-800 h-full">
+    <div className="w-56 xl:w-60 2xl:w-72 flex-shrink-0 bg-slate-900 p-4 flex flex-col gap-4 overflow-y-auto border-r border-slate-800 h-full">
       <div className="bg-gradient-to-br from-slate-800 to-slate-900 p-3 rounded-xl border border-slate-700 shadow-lg relative overflow-hidden">
          <div className="absolute top-0 right-0 w-24 h-24 bg-indigo-500/10 rounded-full blur-2xl -translate-y-1/2 translate-x-1/2 pointer-events-none"></div>
          <div className="flex items-center gap-3 mb-2 relative z-10">
@@ -100,14 +154,13 @@ const ControlPanel: React.FC<ControlPanelProps> = ({ params, setParams, onClearL
          </div>
       </div>
 
-      <div className="space-y-2">
-        <h3 className="text-xs font-semibold text-indigo-400 uppercase tracking-wider">结构类型</h3>
+      <CollapsibleSection title="结构类型" accentClass="text-indigo-400" subtitle="选择当前结构类别" className="space-y-2">
         <select value={params.structureType} onChange={(e) => handleChange('structureType', e.target.value)}
             className="w-full bg-slate-800 text-slate-200 text-xs rounded p-2 border border-slate-700 focus:ring-1 focus:ring-indigo-500 outline-none">
             <optgroup label="基础">
                 <option value={StructureType.Beam}>简支/连续梁</option>
                 <option value={StructureType.PortalFrame}>门式刚架</option>
-                <option value={StructureType.Cantilever}>悬臂刚架</option>
+                <option value={StructureType.Cantilever}>悬臂梁</option>
                 <option value={StructureType.GableFrame}>人字形刚架</option>
             </optgroup>
             <optgroup label="高级参数化">
@@ -117,11 +170,10 @@ const ControlPanel: React.FC<ControlPanelProps> = ({ params, setParams, onClearL
             </optgroup>
             <option value={StructureType.Custom}>自定义</option>
         </select>
-      </div>
+      </CollapsibleSection>
 
       {params.structureType !== StructureType.Custom && (
-      <div className="space-y-2">
-        <h3 className="text-xs font-semibold text-indigo-400 uppercase tracking-wider">参数化几何</h3>
+      <CollapsibleSection title="参数化几何" accentClass="text-indigo-400" subtitle="调整当前参数化结构尺寸" className="space-y-2">
         {showWidth && (
             <div>
             <label className="text-[10px] text-slate-300 flex justify-between"><span>总宽度 (m)</span><span>{params.width}</span></label>
@@ -164,17 +216,35 @@ const ControlPanel: React.FC<ControlPanelProps> = ({ params, setParams, onClearL
                 </div>
             </>
         )}
-      </div>
+        {showOverhang && (
+            <>
+                <div>
+                <label className="text-[10px] text-slate-300 flex justify-between"><span>左悬挑 (m)</span><span>{params.overhangLeft}</span></label>
+                <input type="range" min="0" max="10" step="0.5" value={params.overhangLeft} onChange={(e) => handleChange('overhangLeft', Number(e.target.value))}
+                    className="w-full accent-cyan-500 h-1 bg-slate-700 rounded-lg appearance-none cursor-pointer"/>
+                </div>
+                <div>
+                <label className="text-[10px] text-slate-300 flex justify-between"><span>右悬挑 (m)</span><span>{params.overhangRight}</span></label>
+                <input type="range" min="0" max="10" step="0.5" value={params.overhangRight} onChange={(e) => handleChange('overhangRight', Number(e.target.value))}
+                    className="w-full accent-cyan-500 h-1 bg-slate-700 rounded-lg appearance-none cursor-pointer"/>
+                </div>
+            </>
+        )}
+      </CollapsibleSection>
       )}
 
-
-      <div className="space-y-2 border-t border-slate-800 pt-3 flex-1 min-h-0 flex flex-col">
-        <div className="flex justify-between items-end mb-1">
-            <h3 className="text-xs font-semibold text-rose-400 uppercase tracking-wider">荷载管理</h3>
-            {params.loads.length > 0 && (
-                <button onClick={onClearLoads} className="text-[10px] text-slate-500 hover:text-red-400 underline">清除所有</button>
-            )}
-        </div>
+      <CollapsibleSection
+        title="荷载管理"
+        accentClass="text-rose-400"
+        subtitle="拖拽或编辑当前荷载"
+        contentClassName="flex min-h-0 flex-col gap-2"
+        headerRight={params.loads.length > 0 ? <span className="text-[10px] text-slate-500">{params.loads.length} 条</span> : null}
+      >
+        {params.loads.length > 0 && (
+          <div className="flex justify-end">
+            <button onClick={onClearLoads} className="text-[10px] text-slate-500 hover:text-red-400 underline">清除所有</button>
+          </div>
+        )}
         <div className="grid grid-cols-3 gap-1 mb-1">
             <div draggable onDragStart={(e) => handleDragStart(e, 'point')} onClick={() => addManualLoad('point')}
                 className="bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded p-1.5 flex flex-col items-center cursor-grab active:cursor-grabbing transition-colors group">
@@ -268,10 +338,9 @@ const ControlPanel: React.FC<ControlPanelProps> = ({ params, setParams, onClearL
                  </div>
              )})}
         </div>
-      </div>
+      </CollapsibleSection>
 
-      <div className="space-y-2 border-t border-slate-800 pt-3">
-        <h3 className="text-xs font-semibold text-emerald-400 uppercase tracking-wider">截面属性</h3>
+      <CollapsibleSection title="截面属性" accentClass="text-emerald-400" subtitle="刚度与截面参数" className="space-y-2 border-t border-slate-800 pt-3">
         <div>
             <label className="text-[10px] text-slate-300 block mb-0.5">刚度假设</label>
             <select value={params.stiffnessType} onChange={(e) => handleChange('stiffnessType', e.target.value)}
@@ -296,7 +365,24 @@ const ControlPanel: React.FC<ControlPanelProps> = ({ params, setParams, onClearL
           <input type="range" min="50" max="500" step="10" value={params.momentOfInertia} onChange={(e) => handleChange('momentOfInertia', Number(e.target.value))}
             className="w-full accent-emerald-500 h-1 bg-slate-700 rounded-lg appearance-none cursor-pointer"/>
         </div>
-      </div>
+      </CollapsibleSection>
+
+      <CollapsibleSection
+        title="几何建模"
+        accentClass="text-violet-400"
+        subtitle="节点与单元编辑器"
+        defaultOpen={false}
+        className="space-y-2 border-t border-slate-800 pt-3"
+      >
+        <div className="max-h-[560px] overflow-y-auto rounded-xl border border-slate-800 bg-slate-950/40 p-2">
+          <GeometryEditor
+            params={params}
+            setParams={setParams}
+            showHeader={false}
+            className="flex min-h-0 flex-col gap-4 bg-transparent p-0"
+          />
+        </div>
+      </CollapsibleSection>
 
     </div>
   );

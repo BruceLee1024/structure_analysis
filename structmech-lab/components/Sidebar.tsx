@@ -44,7 +44,7 @@ const Sidebar: React.FC<SidebarProps> = ({
   onSolverClick, onGoHome, onShowSettings,
 }) => {
   return (
-    <aside className="flex w-72 h-full flex-col bg-white border-r border-slate-200 shadow-xl z-10 flex-shrink-0">
+    <aside className="flex w-64 xl:w-72 h-full flex-col bg-white border-r border-slate-200 shadow-xl z-10 flex-shrink-0">
       <div className="p-6 border-b border-slate-100 flex items-center gap-4 bg-gradient-to-r from-blue-50 to-indigo-50">
         <div className="bg-gradient-to-br from-blue-600 to-indigo-600 p-3 rounded-xl text-white shadow-lg"><Beaker size={26} /></div>
         <div>
