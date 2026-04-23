@@ -31,10 +31,10 @@ const CollapsiblePanel: React.FC<CollapsiblePanelProps> = ({ title, icon, childr
     : (open ? '›' : '‹');
 
   return (
-    <div className={`flex-shrink-0 flex flex-col relative transition-all duration-200 lg:sticky lg:top-4 lg:self-start lg:max-h-[calc(100vh-3rem)] ${open ? 'w-full lg:w-72' : 'w-full lg:w-10'}`}>
+    <div className={`flex-shrink-0 flex flex-col relative transition-all duration-200 lg:sticky lg:top-5 lg:self-start lg:max-h-[calc(100vh-3.5rem)] ${open ? 'w-full lg:w-64' : 'w-full lg:w-10'}`}>
       {/* Collapsed strip — desktop only */}
       <div
-        className={`absolute inset-0 bg-white rounded-xl border border-slate-200/80 shadow-sm hidden lg:flex flex-col items-center py-3 gap-2 cursor-pointer hover:bg-slate-50 transition-opacity select-none ${open ? 'lg:opacity-0 lg:pointer-events-none' : 'lg:opacity-100'}`}
+        className={`absolute inset-0 bg-white rounded-2xl border border-slate-200/80 shadow-sm hidden lg:flex flex-col items-center py-3 gap-2 cursor-pointer hover:bg-slate-50 transition-opacity select-none ${open ? 'lg:opacity-0 lg:pointer-events-none' : 'lg:opacity-100'}`}
         onClick={toggle}
       >
         <span className="text-base">{icon}</span>
@@ -45,7 +45,7 @@ const CollapsiblePanel: React.FC<CollapsiblePanelProps> = ({ title, icon, childr
       </div>
       {/* Mobile toggle bar */}
       {!open && (
-        <button onClick={toggle} className="lg:hidden w-full flex items-center gap-2 px-3 py-2 bg-white rounded-xl border border-slate-200/80 shadow-sm text-sm text-slate-600 hover:bg-slate-50">
+        <button onClick={toggle} className="lg:hidden w-full flex items-center gap-2 px-3 py-2.5 bg-white rounded-2xl border border-slate-200/80 shadow-sm text-sm text-slate-600 hover:bg-slate-50">
           <span>{icon}</span><span className="font-medium">{title}</span><span className="ml-auto text-slate-400">▼</span>
         </button>
       )}

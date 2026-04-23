@@ -183,7 +183,7 @@ const App: React.FC = () => {
           </div>
         </header>
 
-        <div className="flex-1 overflow-auto p-3 md:p-6">
+        <div className="flex-1 overflow-auto">
           {activeModule === ModuleType.STATIC && <StaticModule activeSubModule={activeStaticSub} />}
           {activeModule === ModuleType.INFLUENCE && <InfluenceModule activeSubModule={activeInfluenceSub} />}
           {activeModule === ModuleType.SOLVER && <SolverModule />}

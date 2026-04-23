@@ -27,11 +27,10 @@ export const Slider: React.FC<SliderProps> = ({ label, value, min, max, step = 1
     setEditing(false);
     const parsed = parseFloat(draft);
     if (!isNaN(parsed)) {
-      const clamped = Math.min(max, Math.max(min, parsed));
-      const stepped = Math.round(clamped / step) * step;
+      const stepped = Math.round(parsed / step) * step;
       onChange(parseFloat(stepped.toFixed(decimals)));
     }
-  }, [draft, min, max, step, decimals, onChange]);
+  }, [draft, step, decimals, onChange]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter') commitValue();
@@ -48,13 +47,11 @@ export const Slider: React.FC<SliderProps> = ({ label, value, min, max, step = 1
               ref={inputRef}
               type="number"
               value={draft}
-              min={min}
-              max={max}
               step={step}
               onChange={(e) => setDraft(e.target.value)}
               onBlur={commitValue}
               onKeyDown={handleKeyDown}
-              className="w-20 text-sm font-mono text-blue-700 bg-white px-2 py-1 rounded-lg border-2 border-blue-400 text-right outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+              className="w-24 text-sm font-mono text-blue-700 bg-white px-2 py-1 rounded-lg border-2 border-blue-400 text-right outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
             />
             {unit && <span className="text-xs text-slate-500">{unit}</span>}
           </div>
@@ -70,13 +67,16 @@ export const Slider: React.FC<SliderProps> = ({ label, value, min, max, step = 1
       </div>
       <input
         type="range"
-        min={min}
-        max={max}
+        min={Math.min(min, value)}
+        max={Math.max(max, value)}
         step={step}
         value={value}
         onChange={(e) => onChange(parseFloat(e.target.value))}
         className="w-full h-2.5 bg-slate-200 rounded-full appearance-none cursor-pointer accent-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-400 hover:bg-slate-300 transition-colors"
       />
+      {(value < min || value > max) && (
+        <div className="text-[10px] text-amber-600 mt-1">默认范围: {min}–{max} {unit}</div>
+      )}
     </div>
   );
 };

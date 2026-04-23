@@ -12,10 +12,11 @@ interface Step {
 interface SolutionStepsProps {
   steps: Step[];
   title?: string;
+  defaultExpanded?: boolean;
 }
 
-const SolutionSteps: React.FC<SolutionStepsProps> = ({ steps, title = '求解过程' }) => {
-  const [expanded, setExpanded] = useState(false);
+const SolutionSteps: React.FC<SolutionStepsProps> = ({ steps, title = '求解过程', defaultExpanded = true }) => {
+  const [expanded, setExpanded] = useState(defaultExpanded);
   const [whyOpen, setWhyOpen] = useState<Record<number, boolean>>({});
 
   const toggleWhy = (idx: number) => {
@@ -23,14 +24,17 @@ const SolutionSteps: React.FC<SolutionStepsProps> = ({ steps, title = '求解过
   };
 
   return (
-    <div className="bg-white rounded-xl border border-slate-200/60 shadow-sm overflow-hidden">
+    <div className="bg-white rounded-2xl border border-slate-200/70 shadow-sm overflow-hidden">
       <div
-        className="flex items-center justify-between px-4 py-3 cursor-pointer hover:bg-slate-50 transition-colors"
+        className="flex items-center justify-between px-4 py-3.5 cursor-pointer bg-gradient-to-r from-slate-50 via-white to-slate-50/80 hover:from-slate-50 hover:to-slate-100/70 transition-colors"
         onClick={() => setExpanded(!expanded)}
       >
-        <h4 className="text-sm font-bold text-slate-800 flex items-center gap-2">
-          <span className="text-base">📝</span> {title}
-        </h4>
+        <div className="min-w-0">
+          <h4 className="text-sm font-bold text-slate-800 flex items-center gap-2">
+            <span className="text-base">📝</span> {title}
+          </h4>
+          <div className="mt-0.5 text-[11px] text-slate-500">共 {steps.length} 步，按“公式 → 结果 → 解释”阅读</div>
+        </div>
         <svg
           className={`w-4 h-4 text-slate-400 transition-transform duration-200 ${expanded ? 'rotate-180' : ''}`}
           fill="none" stroke="currentColor" viewBox="0 0 24 24"
@@ -40,9 +44,9 @@ const SolutionSteps: React.FC<SolutionStepsProps> = ({ steps, title = '求解过
       </div>
 
       {expanded && (
-        <div className="px-4 pb-3 space-y-2">
+        <div className="px-4 pb-4 pt-1 space-y-2.5 bg-gradient-to-b from-white to-slate-50/40">
           {steps.map((step, i) => (
-            <div key={i} className="flex gap-3 items-start">
+            <div key={i} className="flex gap-3 items-start rounded-xl border border-slate-200/70 bg-white/90 px-3 py-3 shadow-[0_1px_0_rgba(255,255,255,0.75)_inset]">
               <div className="w-6 h-6 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 text-white text-xs font-bold flex items-center justify-center flex-shrink-0 mt-0.5 shadow-sm">
                 {i + 1}
               </div>

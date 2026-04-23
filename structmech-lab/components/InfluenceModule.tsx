@@ -165,7 +165,7 @@ const StaticMethod: React.FC = () => {
   };
 
   return (
-    <div className="flex flex-col lg:flex-row gap-3 lg:gap-4 min-h-full p-3 lg:p-4">
+    <div className="flex flex-col lg:flex-row gap-3 min-h-full p-3">
       <CollapsiblePanel title="参数" icon="🔧" side="left" storageKey="param-panel-il-static">
         <div className="bg-white rounded-xl border border-slate-200/80 p-3 shadow-sm overflow-y-auto">
           <h4 className="text-xs font-semibold text-slate-600 mb-2">🔧 参数设置</h4>
@@ -192,51 +192,67 @@ const StaticMethod: React.FC = () => {
           )}
         </div>
       </CollapsiblePanel>
-      <div className="flex-1 flex flex-col gap-2 lg:gap-3 min-w-0">
+      <div className="flex-1 flex flex-col gap-3 min-w-0">
         {milestone && <LearningMilestone milestone={milestone} onDismiss={dismissMilestone} />}
         <ProgressBar currentModule="静力法" />
         <AIBubble message={bubble} />
-        <div className="bg-white rounded-xl border border-slate-200/80 p-4 shadow-sm flex flex-col">
-          <h4 className="text-xs font-semibold text-slate-600 mb-2">📐 结构示意 (P=1)</h4>
-          <div className="flex-1 flex items-center justify-center">
-            <svg width="100%" viewBox="0 0 300 80" className="bg-gradient-to-b from-slate-50 to-white rounded-xl">
-              <BeamBase />
-              {(() => {
-                const px = 30 + (loadPos / 100) * 240;
-                return (
+
+        {/* 核心区域：结构图(左) + 影响线(右)，固定总高可拖拽 */}
+        <div className="grid grid-cols-1 lg:grid-cols-[1fr_1fr] gap-3 lg:h-[24rem] lg:min-h-48 lg:resize-y lg:overflow-hidden">
+          {/* 左：结构示意 */}
+          <div className="bg-white rounded-xl border border-slate-200/60 shadow-sm overflow-hidden flex flex-col h-full">
+            <div className="px-3 py-1.5 border-b border-slate-100 flex items-center justify-between flex-shrink-0">
+              <h3 className="text-xs font-bold text-slate-700">📐 结构示意 (P=1)</h3>
+              <span className="text-[10px] text-slate-400">L={L}m · x={x.toFixed(1)}m</span>
+            </div>
+            <div className="flex-1 flex items-center justify-center p-3 min-h-0">
+              <svg width="100%" viewBox="0 0 300 80" className="bg-gradient-to-b from-slate-50/60 to-white rounded-lg max-h-full">
+                <BeamBase />
+                {(() => {
+                  const px = 30 + (loadPos / 100) * 240;
+                  return (
+                    <>
+                      <line x1={px} y1="10" x2={px} y2="35" stroke="#ef4444" strokeWidth="2" />
+                      <polygon points={`${px-4},32 ${px+4},32 ${px},40`} fill="#ef4444" />
+                      <text x={px} y="8" className="text-[10px] fill-red-600 font-bold" textAnchor="middle">P=1</text>
+                    </>
+                  );
+                })()}
+                {(targetType === 'Mc' || targetType === 'Qc') && (
                   <>
-                    <line x1={px} y1="10" x2={px} y2="35" stroke="#ef4444" strokeWidth="2" />
-                    <polygon points={`${px-4},32 ${px+4},32 ${px},40`} fill="#ef4444" />
-                    <text x={px} y="8" className="text-[10px] fill-red-600 font-bold" textAnchor="middle">P=1</text>
+                    <line x1={30 + (sectionPos / 100) * 240} y1="35" x2={30 + (sectionPos / 100) * 240} y2="55" stroke="#f97316" strokeWidth="2" strokeDasharray="3" />
+                    <text x={30 + (sectionPos / 100) * 240} y="65" className="text-[10px] fill-orange-600 font-bold" textAnchor="middle">C</text>
                   </>
-                );
-              })()}
-              {(targetType === 'Mc' || targetType === 'Qc') && (
-                <>
-                  <line x1={30 + (sectionPos / 100) * 240} y1="35" x2={30 + (sectionPos / 100) * 240} y2="55" stroke="#f97316" strokeWidth="2" strokeDasharray="3" />
-                  <text x={30 + (sectionPos / 100) * 240} y="65" className="text-[10px] fill-orange-600 font-bold" textAnchor="middle">C</text>
-                </>
-              )}
-            </svg>
+                )}
+              </svg>
+            </div>
+            <div className="px-3 py-2 border-t border-slate-100 text-[10px] font-mono text-slate-600 whitespace-pre-line flex-shrink-0">{ilConfig.formula}</div>
+          </div>
+
+          {/* 右：影响线图 */}
+          <div className="bg-white rounded-xl border border-slate-200/60 shadow-sm overflow-hidden flex flex-col h-full">
+            <div className="px-3 py-1.5 border-b border-slate-100 flex items-center justify-between flex-shrink-0">
+              <h4 className="text-xs font-bold text-slate-700">{ilConfig.title}</h4>
+              <span className="text-[10px] font-mono" style={{ color: ilConfig.color }}>{currentValue.toFixed(3)}</span>
+            </div>
+            <div className="flex-1 flex items-center justify-center p-2 min-h-0">
+              {renderInfluenceLine()}
+            </div>
           </div>
         </div>
 
-        <div className="bg-white rounded-xl border border-slate-200/80 p-4 shadow-sm flex flex-col">
-          <h4 className="text-xs font-semibold text-slate-600 mb-2">{ilConfig.title}</h4>
-          <div className="flex-1 flex items-center justify-center">{renderInfluenceLine()}</div>
-        </div>
-
-        <div className="bg-white rounded-xl border border-slate-200/80 p-4 shadow-sm">
-          <h4 className="text-xs font-semibold text-slate-600 mb-2">Σ 计算结果</h4>
-          <div className="flex flex-wrap gap-2 md:gap-3">
+        {/* 结果条 */}
+        <div className="bg-white rounded-xl border border-slate-200/60 shadow-sm overflow-hidden">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-px bg-slate-100">
             <ResultCard label="荷载位置 x" value={x.toFixed(2)} unit="m" color="purple" />
             <ResultCard label={targetType} value={currentValue.toFixed(4)} unit={ilConfig.unit} color="blue" aiHint={findHint(ilStaticHints, targetType)} />
             <ResultCard label="最大纵标" value={maxValue.toFixed(4)} unit={ilConfig.unit} color="red" aiHint={findHint(ilStaticHints, '最大纵标')} />
-            {(targetType === 'Mc' || targetType === 'Qc') && (
+            {(targetType === 'Mc' || targetType === 'Qc') ? (
               <ResultCard label="截面C位置" value={c.toFixed(2)} unit="m" color="orange" />
+            ) : (
+              <ResultCard label={ilConfig.desc} value="-" unit="" color="green" />
             )}
           </div>
-          <div className="mt-3 pt-3 border-t border-slate-100 text-sm font-mono text-slate-700 whitespace-pre-line">{ilConfig.formula}</div>
         </div>
         <SolutionSteps steps={solveSteps} title="求解过程" />
       </div>
@@ -396,7 +412,7 @@ const KinematicMethod: React.FC = () => {
   };
 
   return (
-    <div className="flex flex-col lg:flex-row gap-3 lg:gap-4 min-h-full p-3 lg:p-4">
+    <div className="flex flex-col lg:flex-row gap-3 min-h-full p-3">
       <CollapsiblePanel title="参数" icon="🔧" side="left" storageKey="param-panel-il-kinematic">
         <div className="bg-white rounded-xl border border-slate-200/80 p-3 shadow-sm overflow-y-auto">
           <h4 className="text-xs font-semibold text-slate-600 mb-2">🔧 参数设置</h4>
@@ -429,25 +445,42 @@ const KinematicMethod: React.FC = () => {
           </div>
         </div>
       </CollapsiblePanel>
-      <div className="flex-1 flex flex-col gap-2 lg:gap-3 min-w-0">
+      <div className="flex-1 flex flex-col gap-3 min-w-0">
         {milestone && <LearningMilestone milestone={milestone} onDismiss={dismissMilestone} />}
         <ProgressBar currentModule="机动法" />
         <AIBubble message={bubble} />
-        <div className="bg-white rounded-xl border border-slate-200/80 p-4 shadow-sm flex flex-col">
-          <h4 className="text-xs font-semibold text-slate-600 mb-2">📐 机动法原理图</h4>
-          <div className="flex-1 flex items-center justify-center">{renderDisplacementDiagram()}</div>
-          <div className="text-center text-sm text-slate-600 mt-2">{ilConfig.displacement}</div>
-        </div>
 
-        <div className="bg-white rounded-xl border border-slate-200/80 p-4 shadow-sm">
-          <h4 className="text-xs font-semibold text-slate-600 mb-2">📖 虚功原理</h4>
-          <div className="flex items-center gap-4">
-            <div className="bg-gradient-to-br from-green-50 to-white rounded-xl px-4 py-2 border border-green-100 text-center">
-              <div className="text-lg font-mono text-slate-800 font-bold">P·y = Z·δ</div>
+        {/* 核心区域：位移图(左) + 虚功原理(右) */}
+        <div className="grid grid-cols-1 lg:grid-cols-[1.2fr_0.8fr] gap-3 lg:h-[24rem] lg:min-h-48 lg:resize-y lg:overflow-hidden">
+          {/* 左：机动法原理图 */}
+          <div className="bg-white rounded-xl border border-slate-200/60 shadow-sm overflow-hidden flex flex-col h-full">
+            <div className="px-3 py-1.5 border-b border-slate-100 flex items-center justify-between flex-shrink-0">
+              <h3 className="text-xs font-bold text-slate-700">📐 机动法原理图</h3>
+              <span className="text-[10px] text-slate-400">L={L}m</span>
             </div>
-            <div className="text-sm text-slate-600 flex-1">{ilConfig.displacement}</div>
+            <div className="flex-1 flex items-center justify-center p-2 min-h-0">
+              {renderDisplacementDiagram()}
+            </div>
+            <div className="px-3 py-1.5 border-t border-slate-100 text-center text-[11px] text-slate-600 flex-shrink-0">{ilConfig.displacement}</div>
+          </div>
+
+          {/* 右：虚功原理 + 说明 */}
+          <div className="flex flex-col gap-2 h-full min-h-0">
+            <div className="bg-white rounded-xl border border-slate-200/60 shadow-sm overflow-hidden flex flex-col flex-1">
+              <div className="px-3 py-1.5 border-b border-slate-100 flex-shrink-0">
+                <h4 className="text-xs font-bold text-slate-700">📖 虚功原理</h4>
+              </div>
+              <div className="flex-1 flex flex-col items-center justify-center p-4 gap-3 min-h-0">
+                <div className="bg-gradient-to-br from-green-50 to-white rounded-xl px-6 py-3 border border-green-100 text-center">
+                  <div className="text-xl font-mono text-slate-800 font-bold">P·y = Z·δ</div>
+                </div>
+                <div className="text-xs text-slate-600 text-center leading-relaxed">{ilConfig.principle}</div>
+                <div className="text-[10px] text-slate-500 text-center">{ilConfig.displacement}</div>
+              </div>
+            </div>
           </div>
         </div>
+
         <SolutionSteps steps={solveSteps} title="机动法求解过程" />
       </div>
 
@@ -593,7 +626,7 @@ const EnvelopeDiagram: React.FC = () => {
   };
 
   return (
-    <div className="flex flex-col lg:flex-row gap-3 lg:gap-4 min-h-full p-3 lg:p-4">
+    <div className="flex flex-col lg:flex-row gap-3 min-h-full p-3">
       <CollapsiblePanel title="参数" icon="🔧" side="left" storageKey="param-panel-il-envelope">
         <div className="bg-white rounded-xl border border-slate-200/80 p-3 shadow-sm overflow-y-auto">
           <h4 className="text-xs font-semibold text-slate-600 mb-2">🔧 参数设置</h4>
@@ -610,18 +643,25 @@ const EnvelopeDiagram: React.FC = () => {
           </div>
         </div>
       </CollapsiblePanel>
-      <div className="flex-1 flex flex-col gap-2 lg:gap-3 min-w-0">
+      <div className="flex-1 flex flex-col gap-3 min-w-0">
         {milestone && <LearningMilestone milestone={milestone} onDismiss={dismissMilestone} />}
         <ProgressBar currentModule="包络图" />
         <AIBubble message={bubble} />
-        <div className="bg-white rounded-xl border border-slate-200/80 p-4 shadow-sm flex flex-col">
-          <h4 className="text-xs font-semibold text-slate-600 mb-2">📐 弯矩包络图</h4>
-          <div className="flex-1 flex items-center justify-center">{renderEnvelope()}</div>
+
+        {/* 包络图 - 单图全宽，固定高可拖拽 */}
+        <div className="bg-white rounded-xl border border-slate-200/60 shadow-sm overflow-hidden flex flex-col lg:h-[24rem] lg:min-h-48 lg:resize-y">
+          <div className="px-3 py-1.5 border-b border-slate-100 flex items-center justify-between flex-shrink-0">
+            <h3 className="text-xs font-bold text-slate-700">📐 弯矩包络图</h3>
+            <span className="text-[10px] font-mono text-red-600">Mmax = {maxMoment.toFixed(0)} kN·m</span>
+          </div>
+          <div className="flex-1 flex items-center justify-center p-3 min-h-0">
+            {renderEnvelope()}
+          </div>
         </div>
 
-        <div className="bg-white rounded-xl border border-slate-200/80 p-4 shadow-sm">
-          <h4 className="text-xs font-semibold text-slate-600 mb-2">Σ 计算结果</h4>
-          <div className="flex flex-wrap gap-2 md:gap-3">
+        {/* 结果条 */}
+        <div className="bg-white rounded-xl border border-slate-200/60 shadow-sm overflow-hidden">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-px bg-slate-100">
             <ResultCard label="最大弯矩" value={maxMoment.toFixed(0)} unit="kN·m" color="red" aiHint={findHint(envelopeHints, '最大弯矩')} />
             <ResultCard label="荷载总数" value={numLoads.toString()} unit="个" color="blue" />
             <ResultCard label="荷载组长度" value={((numLoads - 1) * loadSpacing).toFixed(1)} unit="m" color="green" />
@@ -783,7 +823,7 @@ const InfluenceApplication: React.FC = () => {
   };
 
   return (
-    <div className="flex flex-col lg:flex-row gap-3 lg:gap-4 min-h-full p-3 lg:p-4">
+    <div className="flex flex-col lg:flex-row gap-3 min-h-full p-3">
       <CollapsiblePanel title="参数" icon="🔧" side="left" storageKey="param-panel-il-application">
         <div className="bg-white rounded-xl border border-slate-200/80 p-3 shadow-sm overflow-y-auto">
           <h4 className="text-xs font-semibold text-slate-600 mb-2">🔧 参数设置</h4>
@@ -815,26 +855,54 @@ const InfluenceApplication: React.FC = () => {
           )}
         </div>
       </CollapsiblePanel>
-      <div className="flex-1 flex flex-col gap-2 lg:gap-3 min-w-0">
+      <div className="flex-1 flex flex-col gap-3 min-w-0">
         {milestone && <LearningMilestone milestone={milestone} onDismiss={dismissMilestone} />}
         <ProgressBar currentModule="影响线应用" />
         <AIBubble message={bubble} />
-        <div className="bg-white rounded-xl border border-slate-200/80 p-4 shadow-sm flex flex-col">
-          <h4 className="text-xs font-semibold text-slate-600 mb-2">📐 利用影响线计算内力</h4>
-          <div className="flex-1 flex items-center justify-center">{renderApplication()}</div>
+
+        {/* 核心区域：应用图(左) + 公式卡片(右) */}
+        <div className="grid grid-cols-1 lg:grid-cols-[1.2fr_0.8fr] gap-3 lg:h-[24rem] lg:min-h-48 lg:resize-y lg:overflow-hidden">
+          {/* 左：影响线计算图 */}
+          <div className="bg-white rounded-xl border border-slate-200/60 shadow-sm overflow-hidden flex flex-col h-full">
+            <div className="px-3 py-1.5 border-b border-slate-100 flex items-center justify-between flex-shrink-0">
+              <h3 className="text-xs font-bold text-slate-700">📐 利用影响线计算内力</h3>
+              <span className="text-[10px] font-mono text-red-600">Mc = {Mc.toFixed(1)} kN·m</span>
+            </div>
+            <div className="flex-1 flex items-center justify-center p-2 min-h-0">
+              {renderApplication()}
+            </div>
+          </div>
+
+          {/* 右：公式卡片 */}
+          <div className="flex flex-col gap-2 h-full min-h-0">
+            <div className="bg-white rounded-xl border border-slate-200/60 shadow-sm overflow-hidden flex flex-col flex-1">
+              <div className="px-3 py-1.5 border-b border-slate-100 flex-shrink-0">
+                <h4 className="text-xs font-bold text-slate-700">📖 计算公式</h4>
+              </div>
+              <div className="flex-1 flex flex-col justify-center gap-2 p-3 min-h-0">
+                <div className={`rounded-lg p-2.5 text-center border ${loadType === 'point' ? 'bg-red-50 border-red-200' : 'bg-slate-50 border-slate-200'}`}>
+                  <div className="text-sm font-mono font-bold text-slate-800">Z = P × y</div>
+                  <div className="text-[10px] text-slate-500 mt-0.5">集中力</div>
+                </div>
+                <div className={`rounded-lg p-2.5 text-center border ${loadType === 'distributed' ? 'bg-blue-50 border-blue-200' : 'bg-slate-50 border-slate-200'}`}>
+                  <div className="text-sm font-mono font-bold text-slate-800">Z = q × A</div>
+                  <div className="text-[10px] text-slate-500 mt-0.5">均布荷载</div>
+                </div>
+                <div className={`rounded-lg p-2.5 text-center border ${loadType === 'multi' ? 'bg-green-50 border-green-200' : 'bg-slate-50 border-slate-200'}`}>
+                  <div className="text-sm font-mono font-bold text-slate-800">Z = ΣPᵢyᵢ</div>
+                  <div className="text-[10px] text-slate-500 mt-0.5">多个集中力</div>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
 
-        <div className="bg-white rounded-xl border border-slate-200/80 p-4 shadow-sm">
-          <h4 className="text-xs font-semibold text-slate-600 mb-2">Σ 计算结果</h4>
-          <div className="flex flex-wrap gap-2 md:gap-3">
+        {/* 结果条 */}
+        <div className="bg-white rounded-xl border border-slate-200/60 shadow-sm overflow-hidden">
+          <div className="grid grid-cols-3 gap-px bg-slate-100">
             <ResultCard label="截面C弯矩 Mc" value={Mc.toFixed(1)} unit="kN·m" color="red" aiHint={findHint(appHints, 'Mc')} />
             <ResultCard label="影响线最大纵标" value={maxIL.toFixed(3)} unit="m" color="blue" aiHint={findHint(appHints, '最大纵标')} />
             <ResultCard label="截面C位置" value={c.toFixed(2)} unit="m" color="orange" />
-          </div>
-          <div className="flex gap-3 text-xs mt-3 pt-3 border-t border-slate-100">
-            <div className="flex-1 bg-red-50 rounded-lg p-2 text-center"><span className="font-mono font-bold">Z = P × y</span><br/>集中力</div>
-            <div className="flex-1 bg-blue-50 rounded-lg p-2 text-center"><span className="font-mono font-bold">Z = q × A</span><br/>均布荷载</div>
-            <div className="flex-1 bg-green-50 rounded-lg p-2 text-center"><span className="font-mono font-bold">Z = ΣPᵢyᵢ</span><br/>多个集中力</div>
           </div>
         </div>
         <SolutionSteps steps={solveSteps} title="求解过程" />

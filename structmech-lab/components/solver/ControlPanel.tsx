@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { SolverParams, StructureType, Load } from '../../types';
 import GeometryEditor from './GeometryEditor';
 
@@ -56,6 +56,91 @@ const CollapsibleSection: React.FC<CollapsibleSectionProps> = ({
       </button>
 
       {isOpen ? <div className={contentClassName}>{children}</div> : null}
+    </div>
+  );
+};
+
+interface DarkSliderProps {
+  label: string;
+  value: number;
+  min: number;
+  max: number;
+  step: number;
+  accent?: string;
+  unit?: string;
+  disabled?: boolean;
+  displayOverride?: string;
+  onChange: (val: number) => void;
+}
+
+const accentClasses: Record<string, { text: string; border: string; slider: string }> = {
+  indigo:  { text: 'text-indigo-300',  border: 'border-indigo-500',  slider: 'accent-indigo-500' },
+  purple:  { text: 'text-purple-300',  border: 'border-purple-500',  slider: 'accent-purple-500' },
+  cyan:    { text: 'text-cyan-300',    border: 'border-cyan-500',    slider: 'accent-cyan-500' },
+  emerald: { text: 'text-emerald-300', border: 'border-emerald-500', slider: 'accent-emerald-500' },
+};
+
+const DarkSlider: React.FC<DarkSliderProps> = ({ label, value, min, max, step, accent = 'indigo', unit, disabled, displayOverride, onChange }) => {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState('');
+  const inputRef = useRef<HTMLInputElement>(null);
+  const decimals = step < 0.01 ? 3 : step < 0.1 ? 2 : step < 1 ? 1 : 0;
+  const ac = accentClasses[accent] || accentClasses.indigo;
+
+  useEffect(() => {
+    if (editing && inputRef.current) {
+      inputRef.current.focus();
+      inputRef.current.select();
+    }
+  }, [editing]);
+
+  const commitValue = useCallback(() => {
+    setEditing(false);
+    const parsed = parseFloat(draft);
+    if (!isNaN(parsed)) {
+      const stepped = Math.round(parsed / step) * step;
+      onChange(parseFloat(stepped.toFixed(decimals)));
+    }
+  }, [draft, step, decimals, onChange]);
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') commitValue();
+    if (e.key === 'Escape') setEditing(false);
+  };
+
+  const displayVal = displayOverride ?? value.toFixed(decimals);
+
+  return (
+    <div className={disabled ? 'opacity-40 pointer-events-none' : ''}>
+      <label className="text-[10px] text-slate-300 flex justify-between items-center">
+        <span>{label}{unit ? ` (${unit})` : ''}</span>
+        {editing ? (
+          <input
+            ref={inputRef}
+            type="number"
+            value={draft}
+            step={step}
+            onChange={(e) => setDraft(e.target.value)}
+            onBlur={commitValue}
+            onKeyDown={handleKeyDown}
+            className={`w-16 text-[10px] font-mono ${ac.text} bg-slate-800 px-1.5 py-0.5 rounded border ${ac.border} text-right outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none`}
+          />
+        ) : (
+          <button
+            onClick={() => { setDraft(value.toFixed(decimals)); setEditing(true); }}
+            className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-slate-800 hover:bg-slate-700 hover:ring-1 hover:ring-slate-500 transition-all cursor-text"
+            title="点击输入精确值"
+          >
+            {displayVal}
+          </button>
+        )}
+      </label>
+      <input type="range" min={Math.min(min, value)} max={Math.max(max, value)} step={step} value={value}
+        onChange={(e) => onChange(Number(e.target.value))}
+        className={`w-full ${ac.slider} h-1 bg-slate-700 rounded-lg appearance-none cursor-pointer`}/>
+      {(value < min || value > max) && (
+        <div className="text-[9px] text-amber-500/70 mt-0.5">默认范围: {min}–{max}{unit ? ` ${unit}` : ''}</div>
+      )}
     </div>
   );
 };
@@ -175,59 +260,35 @@ const ControlPanel: React.FC<ControlPanelProps> = ({ params, setParams, onClearL
       {params.structureType !== StructureType.Custom && (
       <CollapsibleSection title="参数化几何" accentClass="text-indigo-400" subtitle="调整当前参数化结构尺寸" className="space-y-2">
         {showWidth && (
-            <div>
-            <label className="text-[10px] text-slate-300 flex justify-between"><span>总宽度 (m)</span><span>{params.width}</span></label>
-            <input type="range" min="3" max="50" step="1" value={params.width} onChange={(e) => handleChange('width', Number(e.target.value))}
-                className="w-full accent-indigo-500 h-1 bg-slate-700 rounded-lg appearance-none cursor-pointer"/>
-            </div>
+            <DarkSlider label="总宽度" unit="m" value={params.width} min={3} max={50} step={1} accent="indigo"
+              onChange={(v) => handleChange('width', v)} />
         )}
         {showHeight && (
-            <div>
-            <label className="text-[10px] text-slate-300 flex justify-between"><span>总高度 (m)</span><span>{params.height}</span></label>
-            <input type="range" min="2" max="50" step="1" value={params.height} onChange={(e) => handleChange('height', Number(e.target.value))}
-                className="w-full accent-indigo-500 h-1 bg-slate-700 rounded-lg appearance-none cursor-pointer"/>
-            </div>
+            <DarkSlider label="总高度" unit="m" value={params.height} min={2} max={50} step={1} accent="indigo"
+              onChange={(v) => handleChange('height', v)} />
         )}
         {showRoof && (
-            <div>
-            <label className="text-[10px] text-slate-300 flex justify-between"><span>屋脊高度 (m)</span><span>{params.roofHeight}</span></label>
-            <input type="range" min="0.5" max="5" step="0.1" value={params.roofHeight} onChange={(e) => handleChange('roofHeight', Number(e.target.value))}
-                className="w-full accent-indigo-500 h-1 bg-slate-700 rounded-lg appearance-none cursor-pointer"/>
-            </div>
+            <DarkSlider label="屋脊高度" unit="m" value={params.roofHeight} min={0.5} max={5} step={0.1} accent="indigo"
+              onChange={(v) => handleChange('roofHeight', v)} />
         )}
         {showSpans && (
-            <div>
-            <label className="text-[10px] text-slate-300 flex justify-between"><span>{params.structureType === StructureType.Truss ? '桁架段数' : '跨数'}</span><span>{params.numSpans}</span></label>
-            <input type="range" min="2" max="10" step="1" value={params.numSpans} onChange={(e) => handleChange('numSpans', Number(e.target.value))}
-                className="w-full accent-purple-500 h-1 bg-slate-700 rounded-lg appearance-none cursor-pointer"/>
-            </div>
+            <DarkSlider label={params.structureType === StructureType.Truss ? '桁架段数' : '跨数'} value={params.numSpans} min={2} max={10} step={1} accent="purple"
+              onChange={(v) => handleChange('numSpans', v)} />
         )}
         {showFrameGrid && (
             <>
-                <div>
-                <label className="text-[10px] text-slate-300 flex justify-between"><span>跨数</span><span>{params.numBays}</span></label>
-                <input type="range" min="1" max="6" step="1" value={params.numBays} onChange={(e) => handleChange('numBays', Number(e.target.value))}
-                    className="w-full accent-purple-500 h-1 bg-slate-700 rounded-lg appearance-none cursor-pointer"/>
-                </div>
-                <div>
-                <label className="text-[10px] text-slate-300 flex justify-between"><span>层数</span><span>{params.numStories}</span></label>
-                <input type="range" min="1" max="8" step="1" value={params.numStories} onChange={(e) => handleChange('numStories', Number(e.target.value))}
-                    className="w-full accent-purple-500 h-1 bg-slate-700 rounded-lg appearance-none cursor-pointer"/>
-                </div>
+                <DarkSlider label="跨数" value={params.numBays} min={1} max={6} step={1} accent="purple"
+                  onChange={(v) => handleChange('numBays', v)} />
+                <DarkSlider label="层数" value={params.numStories} min={1} max={8} step={1} accent="purple"
+                  onChange={(v) => handleChange('numStories', v)} />
             </>
         )}
         {showOverhang && (
             <>
-                <div>
-                <label className="text-[10px] text-slate-300 flex justify-between"><span>左悬挑 (m)</span><span>{params.overhangLeft}</span></label>
-                <input type="range" min="0" max="10" step="0.5" value={params.overhangLeft} onChange={(e) => handleChange('overhangLeft', Number(e.target.value))}
-                    className="w-full accent-cyan-500 h-1 bg-slate-700 rounded-lg appearance-none cursor-pointer"/>
-                </div>
-                <div>
-                <label className="text-[10px] text-slate-300 flex justify-between"><span>右悬挑 (m)</span><span>{params.overhangRight}</span></label>
-                <input type="range" min="0" max="10" step="0.5" value={params.overhangRight} onChange={(e) => handleChange('overhangRight', Number(e.target.value))}
-                    className="w-full accent-cyan-500 h-1 bg-slate-700 rounded-lg appearance-none cursor-pointer"/>
-                </div>
+                <DarkSlider label="左悬挑" unit="m" value={params.overhangLeft} min={0} max={10} step={0.5} accent="cyan"
+                  onChange={(v) => handleChange('overhangLeft', v)} />
+                <DarkSlider label="右悬挑" unit="m" value={params.overhangRight} min={0} max={10} step={0.5} accent="cyan"
+                  onChange={(v) => handleChange('overhangRight', v)} />
             </>
         )}
       </CollapsibleSection>
@@ -350,21 +411,15 @@ const ControlPanel: React.FC<ControlPanelProps> = ({ params, setParams, onClearL
                 <option value="Rigid">Rigid Body (绝对刚性)</option>
             </select>
         </div>
-        <div className={`transition-opacity duration-200 ${isRigid ? 'opacity-40 pointer-events-none' : ''}`}>
-          <label className="text-[10px] text-slate-300 flex justify-between"><span>E (GPa)</span><span className="font-mono">{isRigid ? '∞' : params.elasticModulus}</span></label>
-          <input type="range" min="20" max="210" step="10" value={params.elasticModulus} onChange={(e) => handleChange('elasticModulus', Number(e.target.value))}
-            className="w-full accent-emerald-500 h-1 bg-slate-700 rounded-lg appearance-none cursor-pointer"/>
-        </div>
-        <div className={`transition-opacity duration-200 ${isRigid || isAxiallyRigid ? 'opacity-40 pointer-events-none' : ''}`}>
-           <label className="text-[10px] text-slate-300 flex justify-between"><span>A (cm²)</span><span className="font-mono">{isAxiallyRigid || isRigid ? '∞' : params.crossSectionArea}</span></label>
-           <input type="range" min="10" max="500" step="10" value={params.crossSectionArea} onChange={(e) => handleChange('crossSectionArea', Number(e.target.value))}
-             className="w-full accent-emerald-500 h-1 bg-slate-700 rounded-lg appearance-none cursor-pointer"/>
-        </div>
-        <div className={`transition-opacity duration-200 ${isRigid ? 'opacity-40 pointer-events-none' : ''}`}>
-          <label className="text-[10px] text-slate-300 flex justify-between"><span>I (10⁻⁶ m⁴)</span><span className="font-mono">{isRigid ? '∞' : params.momentOfInertia}</span></label>
-          <input type="range" min="50" max="500" step="10" value={params.momentOfInertia} onChange={(e) => handleChange('momentOfInertia', Number(e.target.value))}
-            className="w-full accent-emerald-500 h-1 bg-slate-700 rounded-lg appearance-none cursor-pointer"/>
-        </div>
+        <DarkSlider label="E" unit="GPa" value={params.elasticModulus} min={20} max={210} step={10} accent="emerald"
+          disabled={isRigid} displayOverride={isRigid ? '∞' : undefined}
+          onChange={(v) => handleChange('elasticModulus', v)} />
+        <DarkSlider label="A" unit="cm²" value={params.crossSectionArea} min={10} max={500} step={10} accent="emerald"
+          disabled={isRigid || isAxiallyRigid} displayOverride={isAxiallyRigid || isRigid ? '∞' : undefined}
+          onChange={(v) => handleChange('crossSectionArea', v)} />
+        <DarkSlider label="I" unit="10⁻⁶ m⁴" value={params.momentOfInertia} min={50} max={500} step={10} accent="emerald"
+          disabled={isRigid} displayOverride={isRigid ? '∞' : undefined}
+          onChange={(v) => handleChange('momentOfInertia', v)} />
       </CollapsibleSection>
 
       <CollapsibleSection
