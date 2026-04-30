@@ -160,10 +160,14 @@ const App: React.FC = () => {
       <main className="flex-1 overflow-hidden flex flex-col min-w-0">
         <header className="bg-white border-b border-slate-200 px-4 py-3 md:px-8 md:py-5 flex-shrink-0">
           <div className="flex items-center gap-3 md:gap-4">
-            <button onClick={() => setSidebarOpen(true)} className="lg:hidden p-2 -ml-2 rounded-lg hover:bg-slate-100 text-slate-600">
+            <button
+              onClick={() => setSidebarOpen(true)}
+              aria-label="打开侧边栏"
+              className="lg:hidden -ml-2 rounded-lg p-2 text-slate-600 transition-colors hover:bg-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500/40"
+            >
               <Menu size={22} />
             </button>
-            <div className="bg-gradient-to-br from-blue-500 to-indigo-600 p-2.5 md:p-3 rounded-xl text-white shadow-lg">
+            <div className="rounded-lg bg-blue-600 p-2.5 text-white shadow-sm md:p-3">
               {activeModule === ModuleType.STATIC && <GitBranch size={20} className="md:w-6 md:h-6" />}
               {activeModule === ModuleType.INFLUENCE && <TrendingUp size={20} className="md:w-6 md:h-6" />}
               {activeModule === ModuleType.SOLVER && <Calculator size={20} className="md:w-6 md:h-6" />}

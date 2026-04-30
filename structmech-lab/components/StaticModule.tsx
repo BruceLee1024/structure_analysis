@@ -17,8 +17,19 @@ import CollapsiblePanel from './ui/CollapsiblePanel';
 import AIBubble from './ui/AIBubble';
 import LearningMilestone from './ui/LearningMilestone';
 import ProgressBar from './ui/ProgressBar';
+import { GeometryScgCompactViewer } from './ui/GeometryScg';
 import { useAIEngine } from '../hooks/useAIEngine';
 import { getBeamHints, getFrameHints, getTrussHints, getArchHints, getCompositeHints, type ResultHint } from '../utils/resultHints';
+import {
+  cloneGeometryCounts,
+  defaultGeometryCounts,
+  evaluateGeometrySystem,
+  geometryPresets,
+  type GeometryCounts,
+  type GeometryPreset,
+  type GeometryPresetId,
+} from '../utils/geometryAnalysis';
+import { geometryScgFigureMap, geometryScgFigures } from '../data/geometryScgScenes';
 
 const findHint = (hints: ResultHint[], label: string) => hints.find(h => h.label === label)?.hint;
 
@@ -130,52 +141,245 @@ const FormulaCard: React.FC<{ title: string; formula: string; desc?: string }> =
 
 
 // ==================== 几何组成分析 ====================
-const GeometryAnalysis: React.FC = () => {
-  const [nodes, setNodes] = useState(4);
-  const [bars, setBars] = useState(5);
-  const [constraints, setConstraints] = useState(3);
-  const [preset, setPreset] = useState<string>('custom');
-  const { bubble, sync, ctx, milestone, dismissMilestone } = useAIEngine({ module: 'static', subModule: 'geometry' });
-  
-  const presets = [
-    { id: 'custom', name: '自定义', n: 0, b: 0, c: 0 },
-    { id: 'simple_beam', name: '简支梁', n: 2, b: 1, c: 3 },
-    { id: 'cantilever', name: '悬臂梁', n: 2, b: 1, c: 3 },
-    { id: 'truss3', name: '三角桁架', n: 3, b: 3, c: 3 },
-    { id: 'frame', name: '门式刚架', n: 4, b: 3, c: 4 },
-    { id: 'indeterminate', name: '一次超静定梁', n: 3, b: 2, c: 4 },
-  ];
+const toneCardClass: Record<'red' | 'green' | 'blue', string> = {
+  red: 'bg-gradient-to-br from-red-50 to-red-100/60 border-red-200 text-red-700',
+  green: 'bg-gradient-to-br from-green-50 to-green-100/60 border-green-200 text-green-700',
+  blue: 'bg-gradient-to-br from-blue-50 to-blue-100/60 border-blue-200 text-blue-700',
+};
 
-  const handlePreset = (id: string) => {
-    setPreset(id);
-    const p = presets.find(x => x.id === id);
-    if (p && id !== 'custom') { setNodes(p.n); setBars(p.b); setConstraints(p.c); }
+const toneTextClass: Record<'red' | 'green' | 'blue', string> = {
+  red: 'text-red-600',
+  green: 'text-green-600',
+  blue: 'text-blue-600',
+};
+
+const toneResultCardColor: Record<'red' | 'green' | 'blue', 'red' | 'green' | 'blue'> = {
+  red: 'red',
+  green: 'green',
+  blue: 'blue',
+};
+
+const memberStroke = {
+  stroke: 'url(#geo-member)',
+  strokeWidth: 3.2,
+  strokeLinecap: 'round' as const,
+  filter: 'url(#geo-shadow)',
+};
+
+const GeometryPreview: React.FC<{ preset: GeometryPreset }> = ({ preset }) => {
+  const figure = preset.figureType;
+
+  return (
+    <svg width="100%" viewBox="0 0 220 120" className="block h-auto w-full" preserveAspectRatio="xMidYMid meet">
+      <StructuralDefs id="geo" />
+      <defs>
+        <linearGradient id="geo-surface" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="#ffffff" />
+          <stop offset="100%" stopColor="#eef4ff" />
+        </linearGradient>
+      </defs>
+      <rect x="4" y="4" width="212" height="112" rx="18" fill="url(#geo-surface)" stroke="#dbe5f4" strokeWidth="1.2" />
+      <path d="M 20 92 H 200" stroke="#d9e2f2" strokeWidth="1" strokeDasharray="3 5" />
+
+      {figure === 'custom' && (
+        <>
+          <rect x="28" y="20" width="164" height="70" rx="14" fill="#f8fafc" stroke="#cbd5e1" strokeWidth="1.5" strokeDasharray="6 4" />
+          <text x="110" y="48" textAnchor="middle" className="fill-slate-700 font-semibold" style={{ fontSize: 14 }}>
+            自定义计数模式
+          </text>
+          <text x="110" y="68" textAnchor="middle" className="fill-slate-500" style={{ fontSize: 10 }}>
+            没有模型图时，只能做 W 值预判
+          </text>
+          <text x="110" y="84" textAnchor="middle" className="fill-slate-400" style={{ fontSize: 10 }}>
+            不能直接下静定 / 超静定结论
+          </text>
+        </>
+      )}
+
+      {figure === 'simple_beam' && (
+        <>
+          <PinSupport cx={38} cy={62} size={8} defsId="geo" />
+          <RollerSupport cx={182} cy={66.4} size={8} defsId="geo" />
+          <line x1="38" y1="62" x2="182" y2="62" stroke="#1e293b" strokeWidth="4" strokeLinecap="round" filter="url(#geo-shadow)" />
+          <circle cx={38} cy={62} r="2.2" fill="#1e293b" />
+          <circle cx={182} cy={62} r="2.2" fill="#1e293b" />
+        </>
+      )}
+
+      {figure === 'cantilever' && (
+        <>
+          <FixedSupport cx={36} cy={60} size={12} defsId="geo" orientation="left" />
+          <line x1="36" y1="60" x2="184" y2="60" {...memberStroke} />
+        </>
+      )}
+
+      {figure === 'portal_frame' && (
+        <>
+          <line x1="50" y1="88" x2="50" y2="32" {...memberStroke} />
+          <line x1="50" y1="32" x2="170" y2="32" {...memberStroke} />
+          <line x1="170" y1="32" x2="170" y2="88" {...memberStroke} />
+          <PinSupport cx={50} cy={88} size={8} defsId="geo" />
+          <RollerSupport cx={170} cy={88} size={8} defsId="geo" />
+          <StructuralNode cx={50} cy={32} r={2.8} />
+          <StructuralNode cx={170} cy={32} r={2.8} />
+          <text x="50" y="24" textAnchor="middle" className="fill-slate-500" style={{ fontSize: 9 }}>
+            刚结
+          </text>
+          <text x="170" y="24" textAnchor="middle" className="fill-slate-500" style={{ fontSize: 9 }}>
+            刚结
+          </text>
+        </>
+      )}
+
+      {figure === 'fixed_fixed_beam' && (
+        <>
+          <FixedSupport cx={36} cy={60} size={12} defsId="geo" orientation="left" />
+          <FixedSupport cx={184} cy={60} size={12} defsId="geo" orientation="right" />
+          <line x1="36" y1="60" x2="184" y2="60" {...memberStroke} />
+        </>
+      )}
+
+      {figure === 'parallel_link_mechanism' && (
+        <>
+          <rect x="48" y="22" width="124" height="10" rx="5" fill="#334155" opacity="0.92" />
+          {[68, 96, 124, 152].map((x) => (
+            <g key={x}>
+              <line x1={x} y1="32" x2={x} y2="86" stroke="#64748b" strokeWidth="2.4" strokeLinecap="round" />
+              <circle cx={x} cy={32} r="2.2" fill="#fff" stroke="#334155" strokeWidth="1.2" />
+              <circle cx={x} cy={86} r="2.2" fill="#fff" stroke="#334155" strokeWidth="1.2" />
+            </g>
+          ))}
+          <line x1="42" y1="88" x2="178" y2="88" stroke="#475569" strokeWidth="1.2" strokeLinecap="round" />
+          <rect x="42" y="88" width="136" height="10" fill="url(#geo-ground)" />
+          <line x1="178" y1="27" x2="204" y2="27" stroke="#ef4444" strokeWidth="1.8" strokeLinecap="round" markerEnd="url(#geo-arrow-red)" />
+          <text x="198" y="18" textAnchor="middle" className="fill-red-600 font-bold" style={{ fontSize: 9 }}>
+            可水平移动
+          </text>
+          <text x="110" y="109" textAnchor="middle" className="fill-slate-500" style={{ fontSize: 9 }}>
+            四根链杆平行，约束方向重复
+          </text>
+        </>
+      )}
+    </svg>
+  );
+};
+
+const countBadgeMeta: Array<{ key: keyof GeometryCounts; label: string }> = [
+  { key: 'rigidBodies', label: '刚片' },
+  { key: 'chainLinks', label: '链杆' },
+  { key: 'simpleHinges', label: '单铰' },
+  { key: 'rigidJoints', label: '刚结' },
+  { key: 'rollerSupports', label: '活动铰' },
+  { key: 'pinSupports', label: '固定铰' },
+  { key: 'guidedSupports', label: '定向支座' },
+  { key: 'fixedSupports', label: '固定端' },
+];
+
+const GeometryAnalysis: React.FC = () => {
+  const [presetId, setPresetId] = useState<GeometryPresetId>('simple_beam');
+  const [counts, setCounts] = useState<GeometryCounts>(() => cloneGeometryCounts(defaultGeometryCounts));
+  const [previewMode, setPreviewMode] = useState<'textbook' | 'model'>('textbook');
+  const [selectedTextbookFigureId, setSelectedTextbookFigureId] = useState('2-9');
+  const { bubble, sync, ctx, milestone, dismissMilestone } = useAIEngine({ module: 'static', subModule: 'geometry' });
+  const preset = useMemo(
+    () => geometryPresets.find((item) => item.id === presetId) ?? geometryPresets[0],
+    [presetId],
+  );
+  const selectedTextbookFigure = useMemo(
+    () => geometryScgFigureMap[selectedTextbookFigureId] ?? geometryScgFigures[0],
+    [selectedTextbookFigureId],
+  );
+  const evaluation = useMemo(
+    () => evaluateGeometrySystem(counts, preset.modelHint),
+    [counts, preset.modelHint],
+  );
+  const previewBadges = useMemo(() => {
+    const badges: Array<{ key: string; label: string; value: number }> = countBadgeMeta
+      .filter(({ key }) => counts[key] > 0)
+      .map(({ key, label }) => ({
+        key,
+        label,
+        value: counts[key],
+      }));
+
+    badges.push({ key: 'w', label: 'W', value: evaluation.W });
+    return badges;
+  }, [counts, evaluation.W]);
+
+  const setCount = (key: keyof GeometryCounts, value: number) => {
+    setCounts((prev) => ({ ...prev, [key]: value }));
+    setPresetId('custom');
   };
-  
-  const W = 3 * nodes - 2 * bars - constraints;
-  
-  const getStatus = () => {
-    if (W > 0) return { text: '几何可变体系', color: 'text-red-600', bg: 'bg-gradient-to-br from-red-50 to-red-100/50 border-red-200', icon: '⚠' };
-    if (W === 0) return { text: '满足静定必要条件', color: 'text-green-600', bg: 'bg-gradient-to-br from-green-50 to-green-100/50 border-green-200', icon: '✓' };
-    return { text: `${Math.abs(W)}次超静定`, color: 'text-blue-600', bg: 'bg-gradient-to-br from-blue-50 to-blue-100/50 border-blue-200', icon: '🔒' };
+
+  const handlePreset = (id: GeometryPresetId) => {
+    setPresetId(id);
+    const matched = geometryPresets.find((item) => item.id === id);
+    if (matched && id !== 'custom') {
+      setCounts(cloneGeometryCounts(matched.counts));
+    }
   };
-  const status = getStatus();
+
   // Sync AI context
   useEffect(() => {
     sync(
-      { nodes, bars, constraints, preset },
-      { W, status: status.text },
+      {
+        preset: presetId,
+        rigidBodies: counts.rigidBodies,
+        chainLinks: counts.chainLinks,
+        simpleHinges: counts.simpleHinges,
+        rigidJoints: counts.rigidJoints,
+        rollerSupports: counts.rollerSupports,
+        pinSupports: counts.pinSupports,
+        guidedSupports: counts.guidedSupports,
+        fixedSupports: counts.fixedSupports,
+        nodes: counts.rigidBodies,
+        bars: counts.simpleHinges,
+        constraints: evaluation.totalConstraints,
+        hasModelPreview: presetId !== 'custom',
+        previewMode,
+        selectedTextbookFigure: selectedTextbookFigure.id,
+      },
+      {
+        W: evaluation.W,
+        totalDOF: evaluation.totalDOF,
+        totalConstraints: evaluation.totalConstraints,
+        status: evaluation.quickTitle,
+        modelStatus: evaluation.modelTitle,
+        previewModeLabel: previewMode === 'textbook' ? '概念图' : '当前模型',
+        textbookFigureTitle: selectedTextbookFigure.title,
+      },
     );
-  }, [nodes, bars, constraints, preset, W, status.text, sync]);
+  }, [counts, presetId, evaluation.W, evaluation.totalDOF, evaluation.totalConstraints, evaluation.quickTitle, evaluation.modelTitle, previewMode, selectedTextbookFigure.id, selectedTextbookFigure.title, sync]);
   const context = ctx.toPromptString();
 
   const solveSteps = useMemo(() => [
-    { title: '确定节点数', equation: `n = ${nodes}`, explanation: '节点（刚片）= 体系中可自由运动的刚体数量，不包括地基' },
-    { title: '计算节点自由度', equation: `3n = 3 × ${nodes} = ${3 * nodes}`, explanation: '平面上每个刚体有3种独立运动：水平平移(→)、竖向平移(↑)、绕点转动(↻)，所以每个节点贡献3个自由度' },
-    { title: '计算约束总数', equation: `2b + c = 2 × ${bars} + ${constraints} = ${2 * bars + constraints}`, explanation: 'b 为铰的数量，每个铰限制2个相对位移(水平+竖向)；c 为单约束数(如链杆、滚动支座各提供1个约束)' },
-    { title: '代入公式', equation: `W = 3n − 2b − c = ${3*nodes} − ${2*bars} − ${constraints}`, result: `${W}` },
-    { title: '判定结果', result: `${status.icon} ${status.text}`, explanation: W > 0 ? '体系缺少约束，可自由运动' : W === 0 ? 'W=0 是静定的必要条件，但不充分——还需验证几何组成是否合理（如三链杆不共点、不共线等）' : `有${Math.abs(W)}个多余约束，为超静定结构，需用力法/位移法求解` },
-  ], [nodes, bars, constraints, W, status]);
+    {
+      title: '确定刚片自由度',
+      equation: `3m = 3 × ${counts.rigidBodies} = ${evaluation.totalDOF}`,
+      explanation: '本页约定 m 为刚片数（不含基础），每个刚片在平面内有 3 个自由度。',
+    },
+    {
+      title: '折算各类约束',
+      equation: `Σc = ${evaluation.weightedFormula} = ${evaluation.totalConstraints}`,
+      explanation: '链杆/活动铰按 1 计，单铰/固定铰/定向支座按 2 计，刚结点/固定端按 3 计；复铰与复刚结应按 n-1 折算后计入。',
+    },
+    {
+      title: '代入计算自由度',
+      equation: `W = 3m - Σc = ${evaluation.totalDOF} - ${evaluation.totalConstraints}`,
+      result: `${evaluation.W}`,
+      explanation: '这里的 W 是计算自由度，不等于最终的结构结论。',
+    },
+    {
+      title: '先做 W 值预判',
+      result: evaluation.quickTitle,
+      explanation: evaluation.quickSummary,
+    },
+    {
+      title: '再结合模型图判断',
+      result: evaluation.modelTitle,
+      explanation: preset.modelConclusion,
+    },
+  ], [counts.rigidBodies, evaluation.totalDOF, evaluation.totalConstraints, evaluation.weightedFormula, evaluation.W, evaluation.quickTitle, evaluation.quickSummary, evaluation.modelTitle, preset.modelConclusion]);
 
   return (
     <div className="flex flex-col lg:flex-row gap-3 min-h-full p-3">
@@ -183,105 +387,196 @@ const GeometryAnalysis: React.FC = () => {
         <div className="bg-white rounded-xl border border-slate-200/80 p-3 shadow-sm overflow-y-auto">
           <h4 className="text-xs font-semibold text-slate-600 mb-2 flex items-center gap-1.5">🔧 参数设置</h4>
           <div className="flex flex-wrap gap-1.5 mb-3">
-            {presets.map(p => (
-              <button key={p.id} onClick={() => handlePreset(p.id)}
-                className={`px-2 py-1 text-[10px] font-medium rounded-lg transition-all ${preset === p.id ? 'bg-blue-600 text-white shadow-md' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>
-                {p.name}
+            {geometryPresets.map((item) => (
+              <button
+                key={item.id}
+                onClick={() => handlePreset(item.id)}
+                className={`px-2 py-1 text-[10px] font-medium rounded-lg transition-all ${presetId === item.id ? 'bg-blue-600 text-white shadow-md' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+              >
+                {item.name}
               </button>
             ))}
           </div>
-          <Slider label="节点数 n" value={nodes} min={2} max={10} unit="" onChange={(v) => { setNodes(v); setPreset('custom'); }} />
-          <Slider label="杆件数 b" value={bars} min={1} max={15} unit="" onChange={(v) => { setBars(v); setPreset('custom'); }} />
-          <Slider label="约束数 c" value={constraints} min={0} max={10} unit="" onChange={(v) => { setConstraints(v); setPreset('custom'); }} />
+          <div className="mb-3 rounded-lg border border-slate-200 bg-slate-50 p-2.5">
+            <div className="text-[11px] font-semibold text-slate-700 mb-1">当前示例</div>
+            <div className="text-[11px] leading-relaxed text-slate-500">{preset.summary}</div>
+          </div>
+          <Slider label="刚片数 m" value={counts.rigidBodies} min={1} max={6} unit="" onChange={(v) => setCount('rigidBodies', v)} />
+          <Slider label="链杆数" value={counts.chainLinks} min={0} max={8} unit="" onChange={(v) => setCount('chainLinks', v)} />
+          <Slider label="单铰数" value={counts.simpleHinges} min={0} max={8} unit="" onChange={(v) => setCount('simpleHinges', v)} />
+          <Slider label="刚结点数" value={counts.rigidJoints} min={0} max={8} unit="" onChange={(v) => setCount('rigidJoints', v)} />
+          <Slider label="活动铰支座" value={counts.rollerSupports} min={0} max={4} unit="" onChange={(v) => setCount('rollerSupports', v)} />
+          <Slider label="固定铰支座" value={counts.pinSupports} min={0} max={4} unit="" onChange={(v) => setCount('pinSupports', v)} />
+          <Slider label="定向支座" value={counts.guidedSupports} min={0} max={4} unit="" onChange={(v) => setCount('guidedSupports', v)} />
+          <Slider label="固定端" value={counts.fixedSupports} min={0} max={4} unit="" onChange={(v) => setCount('fixedSupports', v)} />
+          <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] leading-relaxed text-amber-800">
+            复铰与复刚结请先按本页规则折算成等效的单铰/单刚结后再输入。没有模型图时，本页只做 W 值预判。
+          </div>
         </div>
       </CollapsiblePanel>
       <div className="flex-1 flex flex-col gap-3 min-w-0">
         {milestone && <LearningMilestone milestone={milestone} onDismiss={dismissMilestone} />}
         <ProgressBar currentModule="几何组成" />
         <AIBubble message={bubble} />
-        {/* 上：公式 */}
-        <div className="bg-white rounded-xl border border-slate-200/80 p-4 shadow-sm flex flex-col gap-3">
-            <h4 className="text-xs font-semibold text-slate-600 flex items-center gap-1.5">📐 计算公式</h4>
-            <div className="bg-gradient-to-br from-slate-50 to-white rounded-lg p-4 text-center border border-slate-100 flex-1 flex flex-col justify-center">
-              <div className="text-sm text-slate-500 mb-3">平面体系自由度公式</div>
-              <div className="text-3xl font-serif mb-3 text-slate-800">W = 3n − 2b − c</div>
-              <div className="text-base text-slate-600">
-                W = 3×{nodes} − 2×{bars} − {constraints} = <span className={`text-xl font-bold ${status.color}`}>{W}</span>
-              </div>
-              <div className="flex flex-wrap justify-center gap-x-4 gap-y-1 mt-3 text-xs text-slate-500">
-                <span><strong className="text-slate-700">n</strong> = 节点(刚片)数</span>
-                <span><strong className="text-slate-700">b</strong> = 铰(二元约束)数</span>
-                <span><strong className="text-slate-700">c</strong> = 单约束数</span>
-                <span><strong className="text-slate-700">W</strong> = 自由度(多余约束数)</span>
-              </div>
+        <div className="grid grid-cols-1 items-start xl:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)] gap-3">
+          <div className="self-start bg-white rounded-xl border border-slate-200/80 p-4 shadow-sm">
+            <div className="flex items-center justify-between gap-3 mb-3">
+              <h4 className="text-xs font-semibold text-slate-600 flex items-center gap-1.5">🖼 模型 / 概念示意</h4>
+              <span className="inline-flex items-center rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-semibold text-slate-600">
+                {preset.name}
+              </span>
             </div>
-            {/* 判定结果 */}
-            <div className={`p-4 rounded-xl border shadow-sm ${status.bg} flex items-center justify-between`}>
-              <span className="text-base font-medium text-slate-600">判定结果</span>
-              <span className={`text-xl font-bold ${status.color}`}>{status.icon} {status.text}</span>
+            <div className="flex flex-wrap gap-1.5 mb-3">
+              {[
+                { id: 'textbook', label: '概念图' },
+                { id: 'model', label: '当前模型' },
+              ].map((mode) => (
+                <button
+                  key={mode.id}
+                  onClick={() => setPreviewMode(mode.id as 'textbook' | 'model')}
+                  className={`rounded-lg px-2.5 py-1.5 text-[11px] font-semibold transition-all ${
+                    previewMode === mode.id
+                      ? 'bg-blue-600 text-white shadow-sm'
+                      : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                  }`}
+                >
+                  {mode.label}
+                </button>
+              ))}
             </div>
+
+            {previewMode === 'model' ? (
+              <>
+                <div className="overflow-hidden rounded-2xl border border-slate-200 bg-gradient-to-b from-slate-50 to-white p-3">
+                  <GeometryPreview preset={preset} />
+                </div>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {previewBadges.map((badge) => (
+                    <div
+                      key={badge.key}
+                      className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-semibold ${
+                        badge.label === 'W'
+                          ? evaluation.quickBadgeTone === 'red'
+                            ? 'bg-red-50 text-red-600'
+                            : evaluation.quickBadgeTone === 'green'
+                              ? 'bg-green-50 text-green-600'
+                              : 'bg-blue-50 text-blue-600'
+                          : 'bg-slate-100 text-slate-600'
+                      }`}
+                    >
+                      <span>{badge.label}</span>
+                      <span>{badge.value}</span>
+                    </div>
+                  ))}
+                </div>
+                <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50/80 px-3 py-2.5">
+                  <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">示意说明</div>
+                  <div className="mt-1 text-xs leading-relaxed text-slate-600">{preset.summary}</div>
+                </div>
+              </>
+            ) : (
+              <GeometryScgCompactViewer
+                figures={geometryScgFigures}
+                selectedFigureId={selectedTextbookFigure.id}
+                onSelectFigure={setSelectedTextbookFigureId}
+              />
+            )}
+          </div>
+
+          <div className="self-start bg-white rounded-xl border border-slate-200/80 p-4 shadow-sm flex flex-col gap-3">
+            <h4 className="text-xs font-semibold text-slate-600 flex items-center gap-1.5">📐 公式说明</h4>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <FormulaCard
+                title="计算自由度"
+                formula="W = 3m - Σc"
+                desc="m 为刚片数；Σc 为各类约束折算值之和"
+              />
+              <FormulaCard
+                title="约束折算"
+                formula="链杆/活动铰=1，单铰/固定铰=2，刚结/固定端=3"
+                desc="定向支座按 2 计；复铰、复刚结需按 n-1 折算"
+              />
+            </div>
+            <div className="grid grid-cols-2 xl:grid-cols-4 gap-2">
+              <ResultCard label="3m" value={evaluation.totalDOF.toString()} unit="" color="purple" aiHint="刚片总自由度" />
+              <ResultCard label="Σc" value={evaluation.totalConstraints.toString()} unit="" color="blue" aiHint={`约束折算：${evaluation.weightedFormula}`} />
+              <ResultCard label="W" value={evaluation.W.toString()} unit="" color={toneResultCardColor[evaluation.quickBadgeTone]} aiHint={evaluation.quickSummary} />
+              <ResultCard label="模型判定" value={evaluation.modelTitle} unit="" color={toneResultCardColor[evaluation.modelBadgeTone]} aiHint={evaluation.modelSummary} />
+            </div>
+          </div>
         </div>
 
-        {/* 中：判定规则 */}
         <div className="bg-white rounded-xl border border-slate-200/80 p-4 shadow-sm">
-          <h4 className="text-xs font-semibold text-slate-600 mb-3 flex items-center gap-1.5">📊 判定规则</h4>
-          <div className="flex flex-col sm:flex-row gap-2 sm:gap-3">
-            {[
-              { cond: 'W > 0', label: '几何可变体系', desc: '缺少约束，不稳定', active: W > 0,
-                activeCls: 'bg-gradient-to-br from-red-50 to-red-100/50 border-red-400 shadow-md scale-[1.02]',
-                textCls: 'text-red-600' },
-              { cond: 'W = 0', label: '静定(必要条件)', desc: '约束数量刚好，但需验证几何组成', active: W === 0,
-                activeCls: 'bg-gradient-to-br from-green-50 to-green-100/50 border-green-400 shadow-md scale-[1.02]',
-                textCls: 'text-green-600' },
-              { cond: 'W < 0', label: '超静定结构', desc: '多余约束，需特殊方法', active: W < 0,
-                activeCls: 'bg-gradient-to-br from-blue-50 to-blue-100/50 border-blue-400 shadow-md scale-[1.02]',
-                textCls: 'text-blue-600' },
-            ].map(r => (
-              <div key={r.cond} className={`p-4 rounded-xl text-center flex-1 border-2 transition-all duration-300 ${
-                r.active ? r.activeCls : 'bg-slate-50 border-slate-200 opacity-60'
-              }`}>
-                <div className={`text-xl font-bold ${r.active ? r.textCls : 'text-slate-400'}`}>{r.cond}</div>
-                <div className={`text-sm mt-1 ${r.active ? 'text-slate-700 font-semibold' : 'text-slate-400'}`}>{r.label}</div>
-                <div className="text-xs text-slate-500 mt-1">{r.desc}</div>
-              </div>
-            ))}
+          <h4 className="text-xs font-semibold text-slate-600 mb-3 flex items-center gap-1.5">📊 结论分层</h4>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+            <div className={`rounded-xl border p-4 ${toneCardClass[evaluation.quickBadgeTone]}`}>
+              <div className="text-[11px] font-semibold opacity-70 mb-1">只根据 W 值</div>
+              <div className={`text-lg font-bold ${toneTextClass[evaluation.quickBadgeTone]}`}>{evaluation.quickTitle}</div>
+              <div className="mt-2 text-sm leading-relaxed text-slate-700">{evaluation.quickSummary}</div>
+            </div>
+            <div className={`rounded-xl border p-4 ${toneCardClass[evaluation.modelBadgeTone]}`}>
+              <div className="text-[11px] font-semibold opacity-70 mb-1">结合当前模型图</div>
+              <div className={`text-lg font-bold ${toneTextClass[evaluation.modelBadgeTone]}`}>{evaluation.modelTitle}</div>
+              <div className="mt-2 text-sm leading-relaxed text-slate-700">{preset.modelConclusion}</div>
+            </div>
           </div>
-          <div className="mt-2 px-3 py-2 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-800">
-            <strong>⚠ 注意：</strong>W ≤ 0 是几何不变的<strong>必要条件</strong>，不是充分条件。即使 W = 0，若约束布置不当（如三链杆共点/共线），体系仍可能是瞬变体系。需进一步做几何组成分析。
+          <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-relaxed text-amber-800">
+            <strong>⚠ 规则提醒：</strong>{evaluation.caution}
           </div>
         </div>
 
-        {/* 下：求解过程 + 约束类型 */}
-        <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1.2fr)_18rem] gap-3 lg:gap-4 items-start">
+        <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1.15fr)_19rem] gap-3 lg:gap-4 items-start">
           <div className="flex-1">
             <SolutionSteps steps={solveSteps} title="求解过程" />
           </div>
           <div className="bg-white rounded-2xl border border-slate-200/70 p-4 lg:p-5 shadow-sm w-full h-fit">
-            <h4 className="text-xs font-semibold text-slate-600 mb-3">📖 约束类型速查</h4>
+            <h4 className="text-xs font-semibold text-slate-600 mb-3">📖 约束折算速查</h4>
             <div className="space-y-2">
-              {[
-                { name: '固定铰支座', count: 2, icon: '△' },
-                { name: '滚动铰支座', count: 1, icon: '○' },
-                { name: '固定端（嵌固）', count: 3, icon: '▐' },
-                { name: '单铰连接', count: 2, icon: '◎' },
-                { name: '链杆', count: 1, icon: '—' },
-              ].map(c => (
-                <div key={c.name} className="flex items-center justify-between px-3 py-2 bg-slate-50 rounded-lg">
-                  <span className="text-sm text-slate-600 flex items-center gap-2">
-                    <span className="text-base text-slate-400 w-5 text-center font-mono">{c.icon}</span>
-                    {c.name}
-                  </span>
-                  <span className="text-sm font-bold text-blue-600">{c.count}约束</span>
+              {evaluation.contributions.map((item) => (
+                <div key={item.key} className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-sm font-medium text-slate-700">{item.label}</span>
+                    <span className="text-sm font-bold text-blue-600">{item.weight} × {item.count} = {item.value}</span>
+                  </div>
+                  <div className="mt-1 text-[11px] leading-relaxed text-slate-500">{item.note}</div>
                 </div>
               ))}
             </div>
+            <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-[11px] leading-relaxed text-slate-600">
+              如果是复铰或复刚结：先按 <strong>n-1</strong> 个单铰或单刚结折算，再计入上面的数量。
+            </div>
+          </div>
+        </div>
+
+        <div className="bg-white rounded-xl border border-slate-200/80 p-4 shadow-sm">
+          <h4 className="text-xs font-semibold text-slate-600 mb-3 flex items-center gap-1.5">🧭 使用建议</h4>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            {[
+              {
+                title: 'W > 0',
+                desc: '可以直接判为几何可变体系，说明必要约束不足。',
+              },
+              {
+                title: 'W = 0',
+                desc: '只能说明满足必要条件；还要检查链杆是否平行、共点，以及虚铰是否共线。',
+              },
+              {
+                title: 'W < 0',
+                desc: '先判断模型图是否几何不变。若已知几何不变，才可进一步说“有多余约束、属于超静定”。',
+              },
+            ].map((item) => (
+              <div key={item.title} className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
+                <div className="text-sm font-bold text-slate-800">{item.title}</div>
+                <div className="mt-1 text-xs leading-relaxed text-slate-500">{item.desc}</div>
+              </div>
+            ))}
           </div>
         </div>
       </div>
 
       <CollapsiblePanel title="AI助手" icon="🤖" side="right" storageKey="ai-panel-geometry">
         <AITutor context={context} moduleTitle="几何组成分析"
-          suggestedQuestions={['什么是瞬变体系？', 'W=0一定稳定吗？', '如何增加约束？']} />
+          suggestedQuestions={['W<0 为什么也不能直接判超静定？', '复铰应该怎么折算？', '为什么四根平行链杆还是可变体系？']} />
       </CollapsiblePanel>
     </div>
   );

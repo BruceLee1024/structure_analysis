@@ -29,7 +29,7 @@ const geometryTriggers: AITrigger[] = [
       const W = ctx.results.W;
       return W !== undefined && Number(W) === 0;
     },
-    message: '✅ W=0 表示静定结构。但注意，W=0 是必要条件而非充分条件——还需要检查几何组成是否合理。',
+    message: '✅ W=0 只表示满足几何不变的必要条件。还要继续检查模型图中的约束布置是否有效，才能判断是否静定。',
     priority: 'medium',
     cooldown: 120,
     subModules: ['geometry'],
@@ -40,7 +40,7 @@ const geometryTriggers: AITrigger[] = [
       const W = ctx.results.W;
       return W !== undefined && Number(W) < 0;
     },
-    message: '🔒 W<0 说明结构有多余约束，是超静定结构。需要用力法或位移法求解，静力平衡方程不够用了。',
+    message: '🔎 W<0 只说明总约束数多于自由度，存在多余约束的可能。若模型图已知几何不变，才可进一步判为超静定；否则仍要检查是否存在重复约束。',
     priority: 'medium',
     cooldown: 120,
     subModules: ['geometry'],
@@ -298,12 +298,12 @@ const errorDetectionTriggers: AITrigger[] = [
     id: 'err-geo-w0-not-stable',
     condition: (ctx) => {
       const W = Number(ctx.results.W);
-      const nodes = Number(ctx.params.nodes);
-      const bars = Number(ctx.params.bars);
+      const rigidBodies = Number(ctx.params.rigidBodies || ctx.params.nodes);
+      const hingeLike = Number(ctx.params.simpleHinges || ctx.params.bars);
       const dwell = (Date.now() - ctx.enterTime) / 1000;
-      return W === 0 && nodes >= 4 && bars >= 5 && dwell > 30;
+      return W === 0 && rigidBodies >= 1 && hingeLike >= 0 && dwell > 30;
     },
-    message: '⚠️ 注意：W=0 只是静定的必要条件，不是充分条件！例如三根平行杆连接的体系 W=0 但是瞬变体系。还需要检查几何组成。',
+    message: '⚠️ 注意：W=0 只是几何不变的必要条件，不是充分条件。若约束平行、共点或形成同一直线上的虚铰，体系仍可能是瞬变或常变。',
     priority: 'high',
     cooldown: 300,
     subModules: ['geometry'],

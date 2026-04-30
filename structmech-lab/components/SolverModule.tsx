@@ -148,20 +148,20 @@ const SolverModule: React.FC = () => {
   };
 
   return (
-    <div className="flex h-full w-full overflow-hidden bg-slate-950 text-slate-200 rounded-xl">
+    <div className="flex h-full w-full flex-col overflow-hidden rounded-lg bg-slate-950 text-slate-200 lg:flex-row">
       <ControlPanel 
         params={params} 
         setParams={setParams} 
         onClearLoads={handleClearLoads}
       />
 
-      <main className="flex-1 flex flex-col h-full min-w-0 bg-slate-950">
+      <main className="flex min-h-0 flex-1 flex-col bg-slate-950 lg:h-full lg:min-w-0">
         {results.error && (
           <div className="mx-4 mt-4 mb-2 px-4 py-2 bg-amber-900/60 border border-amber-600/50 rounded-lg text-amber-200 text-sm flex-shrink-0">
             ⚠️ {results.error}
           </div>
         )}
-        <div className="flex-1 min-h-0 p-4 pb-0 overflow-y-auto">
+        <div className="min-h-[32rem] flex-1 overflow-y-auto p-3 pb-0 sm:p-4 sm:pb-0 lg:min-h-0">
             <StructureVisualizer 
                 params={params} 
                 nodes={params.nodes} 
@@ -171,7 +171,7 @@ const SolverModule: React.FC = () => {
                 onAddLoad={handleAddLoad}
             />
         </div>
-        <div className="px-4 xl:hidden">
+        <div className="px-3 sm:px-4 xl:hidden">
           <AgentPanel
             params={params}
             results={results}
@@ -191,7 +191,7 @@ const SolverModule: React.FC = () => {
         />
       </main>
 
-      <aside className="hidden xl:flex w-80 2xl:w-[26rem] flex-shrink-0 flex-col border-l border-slate-800 bg-gradient-to-b from-slate-900 to-slate-950/95 overflow-y-auto">
+      <aside className="hidden xl:flex w-80 2xl:w-[26rem] flex-shrink-0 flex-col border-l border-slate-800 bg-slate-900 overflow-y-auto">
         <div className="p-4">
           <AgentPanel
             params={params}

@@ -266,7 +266,7 @@ export function getAchievedMilestones(): Milestone[] {
 /** Get first-visit guidance message for a sub-module */
 export function getFirstVisitGuide(subModule: string): string | null {
   const guides: Record<string, string> = {
-    geometry: '👋 欢迎来到几何组成分析！调整节点、杆件、约束数来观察 W 值的变化。W=0 是静定结构的必要条件。',
+    geometry: '👋 欢迎来到几何组成分析！试着切换模型图并调整刚片、铰和支座约束。记住：W 只是预判工具，W<0 也不能脱离模型图直接判超静定。',
     beam: '👋 欢迎来到静定梁分析！试试切换梁的类型和荷载类型，观察弯矩图和剪力图的变化。',
     frame: '👋 欢迎来到静定刚架！刚架与梁的区别在于有水平力。调整 P 值观察弯矩图的变化。',
     truss: '👋 欢迎来到静定桁架！桁架杆件只承受轴力（拉或压），调整荷载 P 观察各杆件的内力。',

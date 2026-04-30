@@ -20,8 +20,8 @@ export function getGeometryHints(params: {
     hint: W > 0
       ? `缺少 ${W} 个约束，体系可自由运动`
       : W === 0
-        ? '满足静定必要条件，还需验证几何组成是否合理'
-        : `有 ${Math.abs(W)} 个多余约束，需用力法/位移法`,
+        ? '只满足几何不变必要条件，还需结合模型图验证约束是否有效'
+        : `说明可能存在 ${Math.abs(W)} 个多余约束，但仍需先判断模型是否几何不变`,
   });
 
   const totalDOF = 3 * nodes;

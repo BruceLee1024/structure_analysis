@@ -36,7 +36,8 @@ const CollapsibleSection: React.FC<CollapsibleSectionProps> = ({
       <button
         type="button"
         onClick={() => setIsOpen(prev => !prev)}
-        className="flex w-full items-center justify-between rounded-xl border border-slate-800 bg-slate-900/60 px-3 py-2 text-left transition-colors hover:bg-slate-800/80"
+        aria-expanded={isOpen}
+        className="flex w-full items-center justify-between rounded-lg border border-slate-800 bg-slate-900/60 px-3 py-2 text-left transition-colors hover:bg-slate-800/80 focus:outline-none focus:ring-2 focus:ring-indigo-400/40"
       >
         <div>
           <h3 className={`text-xs font-semibold uppercase tracking-wider ${accentClass}`}>{title}</h3>
@@ -212,12 +213,13 @@ const ControlPanel: React.FC<ControlPanelProps> = ({ params, setParams, onClearL
   const showFrameGrid = params.structureType === StructureType.MultiStoryFrame;
   const showOverhang = params.structureType === StructureType.Beam || params.structureType === StructureType.MultiSpanBeam;
 
+  const loadToolClass = "rounded-lg border border-slate-700 bg-slate-800 p-1.5 flex flex-col items-center cursor-grab active:cursor-grabbing transition-colors hover:bg-slate-700 focus:outline-none focus:ring-2 focus:ring-rose-400/40 group";
+
   return (
-    <div className="w-56 xl:w-60 2xl:w-72 flex-shrink-0 bg-slate-900 p-4 flex flex-col gap-4 overflow-y-auto border-r border-slate-800 h-full">
-      <div className="bg-gradient-to-br from-slate-800 to-slate-900 p-3 rounded-xl border border-slate-700 shadow-lg relative overflow-hidden">
-         <div className="absolute top-0 right-0 w-24 h-24 bg-indigo-500/10 rounded-full blur-2xl -translate-y-1/2 translate-x-1/2 pointer-events-none"></div>
+    <div className="flex max-h-[42vh] w-full flex-shrink-0 flex-col gap-3 overflow-y-auto border-b border-slate-800 bg-slate-900 p-3 lg:h-full lg:max-h-none lg:w-56 lg:border-b-0 lg:border-r lg:p-4 xl:w-60 2xl:w-72">
+      <div className="relative overflow-hidden rounded-lg border border-slate-700 bg-slate-900 p-3">
          <div className="flex items-center gap-3 mb-2 relative z-10">
-            <div className="w-8 h-8 shrink-0 bg-gradient-to-br from-indigo-500 to-violet-600 rounded-lg flex items-center justify-center shadow-lg shadow-indigo-900/50">
+            <div className="w-8 h-8 shrink-0 bg-indigo-600 rounded-lg flex items-center justify-center shadow-sm">
                  <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
                  </svg>
@@ -241,7 +243,8 @@ const ControlPanel: React.FC<ControlPanelProps> = ({ params, setParams, onClearL
 
       <CollapsibleSection title="结构类型" accentClass="text-indigo-400" subtitle="选择当前结构类别" className="space-y-2">
         <select value={params.structureType} onChange={(e) => handleChange('structureType', e.target.value)}
-            className="w-full bg-slate-800 text-slate-200 text-xs rounded p-2 border border-slate-700 focus:ring-1 focus:ring-indigo-500 outline-none">
+            aria-label="结构类型"
+            className="w-full bg-slate-800 text-slate-200 text-xs rounded-lg p-2 border border-slate-700 focus:ring-2 focus:ring-indigo-400/40 outline-none">
             <optgroup label="基础">
                 <option value={StructureType.Beam}>简支/连续梁</option>
                 <option value={StructureType.PortalFrame}>门式刚架</option>
@@ -303,25 +306,28 @@ const ControlPanel: React.FC<ControlPanelProps> = ({ params, setParams, onClearL
       >
         {params.loads.length > 0 && (
           <div className="flex justify-end">
-            <button onClick={onClearLoads} className="text-[10px] text-slate-500 hover:text-red-400 underline">清除所有</button>
+            <button onClick={onClearLoads} className="rounded px-1 text-[10px] text-slate-500 underline hover:text-red-400 focus:outline-none focus:ring-2 focus:ring-red-400/40">清除所有</button>
           </div>
         )}
         <div className="grid grid-cols-3 gap-1 mb-1">
-            <div draggable onDragStart={(e) => handleDragStart(e, 'point')} onClick={() => addManualLoad('point')}
-                className="bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded p-1.5 flex flex-col items-center cursor-grab active:cursor-grabbing transition-colors group">
+            <button type="button" draggable onDragStart={(e) => handleDragStart(e, 'point')} onClick={() => addManualLoad('point')}
+                aria-label="添加集中力"
+                className={loadToolClass}>
                 <div className="text-red-400 text-sm font-bold mb-0.5 group-hover:scale-110 transition-transform">↓</div>
                 <div className="text-[9px] text-slate-400">集中力</div>
-            </div>
-            <div draggable onDragStart={(e) => handleDragStart(e, 'moment')} onClick={() => addManualLoad('moment')}
-                className="bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded p-1.5 flex flex-col items-center cursor-grab active:cursor-grabbing transition-colors group">
+            </button>
+            <button type="button" draggable onDragStart={(e) => handleDragStart(e, 'moment')} onClick={() => addManualLoad('moment')}
+                aria-label="添加力矩"
+                className={loadToolClass}>
                 <div className="text-orange-400 text-sm font-bold mb-0.5 group-hover:scale-110 transition-transform">↺</div>
                 <div className="text-[9px] text-slate-400">力矩</div>
-            </div>
-            <div draggable onDragStart={(e) => handleDragStart(e, 'distributed')} onClick={() => addManualLoad('distributed')}
-                className="bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded p-1.5 flex flex-col items-center cursor-grab active:cursor-grabbing transition-colors group">
+            </button>
+            <button type="button" draggable onDragStart={(e) => handleDragStart(e, 'distributed')} onClick={() => addManualLoad('distributed')}
+                aria-label="添加分布载"
+                className={loadToolClass}>
                 <div className="text-purple-400 text-sm font-bold mb-0.5 flex tracking-tighter group-hover:scale-110 transition-transform">↓↓↓</div>
                 <div className="text-[9px] text-slate-400">分布载</div>
-            </div>
+            </button>
         </div>
         
         <div className="space-y-1.5 overflow-y-auto pr-1 flex-1 bg-slate-950/30 p-1.5 rounded-lg border border-slate-800/50">
@@ -346,14 +352,14 @@ const ControlPanel: React.FC<ControlPanelProps> = ({ params, setParams, onClearL
                             {load.type === 'distributed' && 'q'}
                             {load.type === 'moment' && 'M'}
                          </span>
-                         <button onClick={() => deleteLoad(load.id)} className="text-slate-500 hover:text-red-400 px-1 font-bold">×</button>
+                         <button onClick={() => deleteLoad(load.id)} aria-label={`删除第 ${idx + 1} 条荷载`} className="rounded px-1 font-bold text-slate-500 hover:text-red-400 focus:outline-none focus:ring-2 focus:ring-red-400/40">×</button>
                      </div>
                      <div className="grid grid-cols-2 gap-1">
                         <div className="col-span-2 bg-slate-900/50 p-1 rounded border border-slate-800">
                             <div className="flex justify-between mb-0.5">
                                 <label className="text-[8px] text-slate-500">作用对象</label>
                                 {load.type !== 'distributed' && (
-                                    <button onClick={() => toggleLoadTarget(load.id, !isElementLoad)} className="text-[8px] text-blue-400 hover:underline">
+                                    <button onClick={() => toggleLoadTarget(load.id, !isElementLoad)} className="rounded text-[8px] text-blue-400 hover:underline focus:outline-none focus:ring-2 focus:ring-blue-400/40">
                                         {isElementLoad ? "→节点" : "→单元"}
                                     </button>
                                 )}
@@ -366,6 +372,7 @@ const ControlPanel: React.FC<ControlPanelProps> = ({ params, setParams, onClearL
                                         if(isElementLoad) updateLoad(load.id, 'elementId', val);
                                         else updateLoad(load.id, 'nodeId', val);
                                     }}
+                                    aria-label="荷载作用对象编号"
                                     className="w-full bg-transparent text-white text-center focus:outline-none font-mono border-b border-slate-700 focus:border-blue-500 text-[10px]"/>
                             </div>
                         </div>
@@ -377,18 +384,21 @@ const ControlPanel: React.FC<ControlPanelProps> = ({ params, setParams, onClearL
                                 </div>
                                 <input type="range" min="0" max="1" step="0.01" value={load.location || 0.5}
                                     onChange={(e) => updateLoad(load.id, 'location', Number(e.target.value))}
+                                    aria-label="荷载位置"
                                     className="w-full h-1 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-blue-500"/>
                             </div>
                         )}
                         <div>
                             <label className="text-[8px] text-slate-500 block">大小 ({load.type === 'moment' ? 'kNm' : load.type === 'distributed' ? 'kN/m' : 'kN'})</label>
                             <input type="number" value={load.magnitude} onChange={(e) => updateLoad(load.id, 'magnitude', parseFloat(e.target.value))}
+                                aria-label="荷载大小"
                                 className="w-full bg-slate-900 border border-slate-700 rounded px-1 text-white focus:border-rose-500 outline-none text-[10px]"/>
                         </div>
                         {load.type !== 'moment' ? (
                         <div>
                             <label className="text-[8px] text-slate-500 block">方向</label>
                             <select value={load.direction} onChange={(e) => updateLoad(load.id, 'direction', e.target.value)}
+                                aria-label="荷载方向"
                                 className="w-full bg-slate-900 border border-slate-700 rounded px-1 text-white focus:border-rose-500 outline-none h-[20px] text-[10px]">
                                 <option value="y">Y</option>
                                 <option value="x">X</option>
@@ -405,7 +415,8 @@ const ControlPanel: React.FC<ControlPanelProps> = ({ params, setParams, onClearL
         <div>
             <label className="text-[10px] text-slate-300 block mb-0.5">刚度假设</label>
             <select value={params.stiffnessType} onChange={(e) => handleChange('stiffnessType', e.target.value)}
-                className="w-full bg-slate-800 text-slate-200 text-[10px] rounded p-1.5 border border-slate-700 focus:ring-1 focus:ring-emerald-500 outline-none">
+                aria-label="刚度假设"
+                className="w-full bg-slate-800 text-slate-200 text-[10px] rounded-lg p-1.5 border border-slate-700 focus:ring-2 focus:ring-emerald-400/40 outline-none">
                 <option value="Elastic">Elastic (弹性)</option>
                 <option value="AxiallyRigid">Axially Rigid (轴向刚性)</option>
                 <option value="Rigid">Rigid Body (绝对刚性)</option>
@@ -429,7 +440,7 @@ const ControlPanel: React.FC<ControlPanelProps> = ({ params, setParams, onClearL
         defaultOpen={false}
         className="space-y-2 border-t border-slate-800 pt-3"
       >
-        <div className="max-h-[560px] overflow-y-auto rounded-xl border border-slate-800 bg-slate-950/40 p-2">
+        <div className="max-h-[560px] overflow-y-auto rounded-lg border border-slate-800 bg-slate-950/40 p-2">
           <GeometryEditor
             params={params}
             setParams={setParams}

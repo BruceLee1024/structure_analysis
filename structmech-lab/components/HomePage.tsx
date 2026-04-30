@@ -48,8 +48,10 @@ const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
   const [showWechatQR, setShowWechatQR] = useState(false);
 
   const initParticles = useCallback((width: number, height: number) => {
-    const colors = ['#818cf8', '#a78bfa', '#c4b5fd', '#6366f1', '#8b5cf6', '#a5b4fc'];
-    particlesRef.current = Array.from({ length: 100 }, () => ({
+    const colors = ['#60a5fa', '#38bdf8', '#a78bfa', '#f472b6', '#22c55e', '#f59e0b'];
+    const particleCount = width < 640 ? 42 : width < 1024 ? 72 : 96;
+    const shapeCount = width < 640 ? 6 : width < 1024 ? 10 : 14;
+    particlesRef.current = Array.from({ length: particleCount }, () => ({
       x: Math.random() * width, y: Math.random() * height,
       vx: (Math.random() - 0.5) * 0.8, vy: (Math.random() - 0.5) * 0.8,
       radius: Math.random() * 2.5 + 1, color: colors[Math.floor(Math.random() * colors.length)],
@@ -57,7 +59,7 @@ const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
     }));
 
     const shapeTypes: FloatingShape['type'][] = ['triangle', 'square', 'hexagon', 'circle'];
-    shapesRef.current = Array.from({ length: 15 }, () => ({
+    shapesRef.current = Array.from({ length: shapeCount }, () => ({
       x: Math.random() * width, y: Math.random() * height,
       size: Math.random() * 40 + 20, rotation: Math.random() * Math.PI * 2,
       rotationSpeed: (Math.random() - 0.5) * 0.02,
@@ -126,6 +128,8 @@ const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
       ctx.restore();
     };
 
+
+    const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
     const animate = () => {
       timeRef.current += 0.016;
@@ -267,7 +271,9 @@ const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
         ctx.stroke();
       }
 
-      animationRef.current = requestAnimationFrame(animate);
+      if (!prefersReducedMotion) {
+        animationRef.current = requestAnimationFrame(animate);
+      }
     };
 
     initParticles(canvas.width, canvas.height);
@@ -313,25 +319,25 @@ const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
     <div className="relative w-full h-full overflow-auto">
       <canvas ref={canvasRef} className="fixed inset-0 z-0" />
 
-      <div className="relative z-10 min-h-full flex flex-col items-center px-8 py-12">
+      <div className="relative z-10 min-h-full flex flex-col items-center px-4 py-8 sm:px-6 sm:py-10 lg:px-8 lg:py-12">
         {/* 顶部标签 */}
-        <div className="inline-flex items-center gap-2 px-5 py-2.5 rounded-full bg-gradient-to-r from-indigo-500/10 to-violet-500/10 border border-indigo-500/20 backdrop-blur-sm mb-8 animate-fade-in">
+        <div className="inline-flex max-w-full items-center gap-2 rounded-full border border-sky-400/25 bg-slate-950/35 px-4 py-2 text-center backdrop-blur-md sm:px-5 sm:py-2.5 mb-6 sm:mb-8 animate-fade-in">
           <Sparkles size={16} className="text-indigo-400 animate-pulse" />
-          <span className="text-sm font-medium text-indigo-200">交互式结构力学学习平台</span>
+          <span className="text-xs font-medium text-sky-100 sm:text-sm">交互式结构力学学习平台</span>
           <Sparkles size={16} className="text-violet-400 animate-pulse" />
         </div>
 
         {/* 主标题 - 高级动效 */}
-        <div className="relative mb-8 animate-fade-in-up">
+        <div className="relative mb-6 sm:mb-8 animate-fade-in-up">
           {/* 背景光效 */}
           <div className="absolute -inset-20 bg-gradient-to-r from-indigo-500/20 via-violet-500/20 to-purple-500/20 blur-3xl rounded-full animate-pulse-slow" />
           
-          <h1 className="relative text-7xl font-black text-center leading-tight tracking-tight">
+          <h1 className="relative text-center text-4xl font-black leading-tight tracking-normal text-balance sm:text-5xl lg:text-7xl">
             <span className="text-white drop-shadow-2xl">结构力学</span>
             <br />
             <span className="relative inline-block">
               {/* 渐变文字 */}
-              <span className="text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 via-violet-400 to-purple-400 animate-gradient-x">
+              <span className="text-transparent bg-clip-text bg-gradient-to-r from-sky-300 via-violet-300 to-fuchsia-300 animate-gradient-x">
                 可视化
               </span>
               {/* 下划线动效 */}
@@ -342,26 +348,26 @@ const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
         </div>
 
         {/* 副标题 */}
-        <p className="text-slate-400 text-lg mb-3 text-center max-w-2xl animate-fade-in-up animation-delay-200">
+        <p className="max-w-2xl text-center text-base leading-7 text-slate-300 sm:text-lg animate-fade-in-up animation-delay-200">
           通过动态可视化和实时模拟，让抽象的力学概念变得直观易懂
         </p>
-        <p className="text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-violet-400 text-sm font-medium mb-12 animate-fade-in-up animation-delay-300">
+        <p className="mb-8 mt-2 text-sm font-medium text-transparent bg-clip-text bg-gradient-to-r from-sky-300 to-violet-300 sm:mb-12 animate-fade-in-up animation-delay-300">
           选择下方模块，开启你的学习之旅
         </p>
 
         {/* 统计数据 */}
-        <div className="flex items-center gap-6 mb-14 animate-fade-in-up animation-delay-400">
+        <div className="grid w-full max-w-5xl grid-cols-2 gap-3 mb-10 sm:grid-cols-4 sm:gap-4 lg:mb-14 animate-fade-in-up animation-delay-400">
           {stats.map((stat, i) => (
             <div
               key={i}
-              className="group flex items-center gap-4 px-6 py-4 rounded-2xl bg-gradient-to-br from-slate-800/60 to-slate-900/60 border border-slate-700/50 backdrop-blur-sm hover:border-indigo-500/40 hover:shadow-xl hover:shadow-indigo-500/20 hover:scale-105 transition-all duration-300 cursor-default"
+              className="group flex min-h-20 items-center gap-3 rounded-lg border border-slate-700/60 bg-slate-900/65 px-3 py-3 backdrop-blur-md transition-all duration-300 hover:border-sky-400/40 hover:bg-slate-900/80 sm:gap-4 sm:px-4 lg:px-5"
               style={{ animationDelay: `${400 + i * 100}ms` }}
             >
-              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-500 to-violet-600 flex items-center justify-center shadow-lg shadow-indigo-900/50 group-hover:shadow-indigo-500/50 group-hover:scale-110 transition-all">
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-sky-500/15 text-sky-200 ring-1 ring-sky-300/20 transition-all group-hover:bg-sky-500/25 sm:h-10 sm:w-10">
                 <span className="text-white">{stat.icon}</span>
               </div>
-              <div>
-                <div className="text-2xl font-black text-white group-hover:text-indigo-100 transition-colors">{stat.value}</div>
+              <div className="min-w-0">
+                <div className="text-xl font-black text-white transition-colors sm:text-2xl">{stat.value}</div>
                 <div className="text-xs text-slate-400">{stat.label}</div>
               </div>
             </div>
@@ -369,21 +375,21 @@ const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
         </div>
 
         {/* 模块卡片 */}
-        <div className="grid grid-cols-5 gap-5 max-w-7xl w-full mb-14">
+        <div className="grid w-full max-w-7xl grid-cols-1 gap-3 mb-10 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 xl:gap-4 lg:mb-14">
           {modules.map((item, i) => (
             <button
               key={item.id}
               onClick={() => handleModuleClick(item)}
-              className="group relative bg-gradient-to-br from-slate-800/60 to-slate-900/60 backdrop-blur-sm border border-slate-700/50 rounded-2xl p-6 text-left transition-all duration-300 hover:border-indigo-500/40 hover:scale-[1.03] hover:shadow-2xl hover:shadow-indigo-500/20 animate-fade-in-up"
+              className="group relative min-h-36 overflow-hidden rounded-lg border border-slate-700/60 bg-slate-900/70 p-4 text-left backdrop-blur-md transition-all duration-300 hover:-translate-y-0.5 hover:border-sky-400/50 hover:bg-slate-900/85 focus:outline-none focus:ring-2 focus:ring-sky-300/70 sm:p-5 xl:min-h-52 animate-fade-in-up"
               style={{ animationDelay: `${600 + i * 50}ms` }}
             >
-              <div className="absolute inset-0 rounded-2xl bg-gradient-to-br from-indigo-500/5 to-violet-500/5 opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
-              <div className={`relative inline-flex items-center justify-center w-14 h-14 rounded-xl bg-gradient-to-br ${item.color} text-white mb-4 shadow-lg shadow-indigo-900/30 group-hover:shadow-xl group-hover:shadow-indigo-500/30 group-hover:scale-110 transition-all duration-300`}>
+              <div className="absolute inset-x-0 top-0 h-0.5 bg-gradient-to-r from-sky-400/0 via-sky-300/70 to-fuchsia-300/0 opacity-0 transition-opacity duration-300 group-hover:opacity-100" />
+              <div className={`relative mb-4 inline-flex h-12 w-12 items-center justify-center rounded-lg bg-gradient-to-br ${item.color} text-white shadow-sm transition-all duration-300 group-hover:scale-105 sm:h-14 sm:w-14`}>
                 {item.icon}
               </div>
-              <h3 className="relative text-lg font-bold text-white mb-2 group-hover:text-indigo-100 transition-colors">{item.title}</h3>
-              <p className="relative text-sm text-slate-400 mb-4 line-clamp-2 leading-relaxed group-hover:text-slate-300 transition-colors">{item.desc}</p>
-              <div className="relative flex items-center text-sm font-semibold text-indigo-400 group-hover:text-indigo-300 transition-colors">
+              <h3 className="relative mb-2 text-base font-bold text-white transition-colors group-hover:text-sky-100 sm:text-lg">{item.title}</h3>
+              <p className="relative mb-4 text-sm leading-6 text-slate-400 transition-colors group-hover:text-slate-300 xl:line-clamp-3">{item.desc}</p>
+              <div className="relative flex items-center text-sm font-semibold text-sky-300 transition-colors group-hover:text-sky-200">
                 开始学习
                 <ChevronRight size={16} className="ml-1 group-hover:translate-x-2 transition-transform duration-300" />
               </div>
@@ -392,11 +398,11 @@ const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
         </div>
 
         {/* 底部提示 */}
-        <div className="flex items-center gap-3 px-5 py-3 rounded-full bg-gradient-to-r from-slate-800/50 to-slate-900/50 border border-slate-700/50 backdrop-blur-sm animate-fade-in-up animation-delay-1000">
-          <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-violet-500 to-purple-600 flex items-center justify-center shadow-lg shadow-violet-900/50 animate-bounce-slow">
+        <div className="flex max-w-full items-center gap-3 rounded-full border border-slate-700/60 bg-slate-900/65 px-4 py-3 backdrop-blur-md sm:px-5 animate-fade-in-up animation-delay-1000">
+          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-violet-500/20 text-violet-100 ring-1 ring-violet-300/25 animate-bounce-slow">
             <Bot size={16} className="text-white" />
           </div>
-          <span className="text-sm text-slate-300">
+          <span className="text-sm leading-6 text-slate-300">
             每个模块都配有 <span className="text-indigo-400 font-semibold">AI 智能助教</span>，随时解答你的疑问
           </span>
         </div>
@@ -404,13 +410,14 @@ const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
         {/* 作者信息 */}
         <div className="mt-10 flex flex-col items-center gap-4 animate-fade-in-up animation-delay-1000">
           <p className="text-slate-500 text-sm">关注作者，获取更多学习资源</p>
-          <div className="flex items-center gap-4">
+          <div className="flex flex-wrap items-center justify-center gap-3 sm:gap-4">
             {/* 抖音 */}
             <a
               href="https://www.douyin.com/user/self"
               target="_blank"
               rel="noopener noreferrer"
-              className="group flex items-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-br from-slate-800/60 to-slate-900/60 border border-slate-700/50 hover:border-pink-500/40 hover:shadow-lg hover:shadow-pink-500/20 transition-all duration-300"
+              aria-label="打开作者抖音主页"
+              className="group flex items-center gap-2 rounded-lg border border-slate-700/60 bg-slate-900/65 px-4 py-2.5 transition-all duration-300 hover:border-pink-500/40 hover:bg-slate-900/85 focus:outline-none focus:ring-2 focus:ring-pink-300/60"
             >
               <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-pink-500 to-rose-600 flex items-center justify-center text-white group-hover:scale-110 transition-transform">
                 <DouyinIcon />
@@ -423,7 +430,8 @@ const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
               href="https://www.xiaohongshu.com/user/profile/67b884d2000000000e013859"
               target="_blank"
               rel="noopener noreferrer"
-              className="group flex items-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-br from-slate-800/60 to-slate-900/60 border border-slate-700/50 hover:border-red-500/40 hover:shadow-lg hover:shadow-red-500/20 transition-all duration-300"
+              aria-label="打开作者小红书主页"
+              className="group flex items-center gap-2 rounded-lg border border-slate-700/60 bg-slate-900/65 px-4 py-2.5 transition-all duration-300 hover:border-red-500/40 hover:bg-slate-900/85 focus:outline-none focus:ring-2 focus:ring-red-300/60"
             >
               <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-red-500 to-red-600 flex items-center justify-center text-white group-hover:scale-110 transition-transform">
                 <svg viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5">
@@ -436,7 +444,8 @@ const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
             {/* 微信 */}
             <button
               onClick={() => setShowWechatQR(true)}
-              className="group flex items-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-br from-slate-800/60 to-slate-900/60 border border-slate-700/50 hover:border-green-500/40 hover:shadow-lg hover:shadow-green-500/20 transition-all duration-300"
+              aria-label="查看作者微信二维码"
+              className="group flex items-center gap-2 rounded-lg border border-slate-700/60 bg-slate-900/65 px-4 py-2.5 transition-all duration-300 hover:border-green-500/40 hover:bg-slate-900/85 focus:outline-none focus:ring-2 focus:ring-green-300/60"
             >
               <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-green-500 to-green-600 flex items-center justify-center text-white group-hover:scale-110 transition-transform">
                 <WechatIcon />
@@ -460,7 +469,8 @@ const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
             {/* 关闭按钮 */}
             <button
               onClick={() => setShowWechatQR(false)}
-              className="absolute top-4 right-4 w-8 h-8 rounded-full bg-slate-700/50 hover:bg-slate-600/50 flex items-center justify-center text-slate-400 hover:text-white transition-colors"
+              aria-label="关闭微信二维码弹窗"
+              className="absolute top-4 right-4 flex h-8 w-8 items-center justify-center rounded-full bg-slate-700/50 text-slate-400 transition-colors hover:bg-slate-600/50 hover:text-white focus:outline-none focus:ring-2 focus:ring-green-300/60"
             >
               <X size={18} />
             </button>

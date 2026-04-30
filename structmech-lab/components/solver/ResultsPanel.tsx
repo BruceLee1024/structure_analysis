@@ -101,39 +101,44 @@ const ResultsPanel: React.FC<ResultsPanelProps> = ({ results, nodes, elements, l
 
   return (
     <div
-      className="flex-shrink-0 bg-slate-900 border-t border-slate-700 flex flex-col rounded-b-xl overflow-hidden"
+      className="flex-shrink-0 overflow-hidden rounded-b-lg border-t border-slate-700 bg-slate-900 flex flex-col"
       style={{ height: isOpen ? panelHeight : MIN_HEIGHT }}
     >
       {/* Drag resize handle */}
       {isOpen && (
         <div
-          className="h-1.5 flex-shrink-0 cursor-ns-resize group hover:bg-indigo-500/30 transition-colors flex items-center justify-center"
+          className="group flex h-1.5 flex-shrink-0 cursor-ns-resize items-center justify-center transition-colors hover:bg-indigo-500/30"
           onMouseDown={handleDragStart}
+          aria-hidden="true"
         >
           <div className="w-10 h-0.5 rounded-full bg-slate-600 group-hover:bg-indigo-400 transition-colors" />
         </div>
       )}
 
       {/* Handle bar */}
-      <div
-        className="h-9 flex-shrink-0 flex items-center gap-2 px-3 cursor-pointer select-none hover:bg-slate-800/60 transition-colors"
-        onClick={() => setIsOpen(!isOpen)}
-      >
-        <svg
-          className={`w-3.5 h-3.5 text-slate-400 transition-transform duration-300 ${isOpen ? 'rotate-180' : ''}`}
-          fill="none" stroke="currentColor" viewBox="0 0 24 24"
+      <div className="flex h-9 flex-shrink-0 items-center gap-2 px-3 transition-colors hover:bg-slate-800/60">
+        <button
+          type="button"
+          className="flex min-w-0 shrink-0 items-center gap-2 rounded px-1 py-1 text-left focus:outline-none focus:ring-2 focus:ring-indigo-400/40"
+          onClick={() => setIsOpen(!isOpen)}
+          aria-expanded={isOpen}
         >
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
-        </svg>
-        <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">计算结果</span>
+          <svg
+            className={`w-3.5 h-3.5 text-slate-400 transition-transform duration-300 ${isOpen ? 'rotate-180' : ''}`}
+            fill="none" stroke="currentColor" viewBox="0 0 24 24"
+          >
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
+          </svg>
+          <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">计算结果</span>
+        </button>
 
         {isOpen && (
-          <div className="flex gap-1 ml-3">
+          <div className="ml-1 flex min-w-0 gap-1 overflow-x-auto sm:ml-3">
             {tabs.map(tab => (
               <button
                 key={tab.key}
                 onClick={(e) => { e.stopPropagation(); setActiveTab(tab.key); }}
-                className={`px-2 py-0.5 rounded text-[10px] font-semibold transition-colors flex items-center gap-1 ${
+                className={`flex shrink-0 items-center gap-1 rounded px-2 py-0.5 text-[10px] font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-400/40 ${
                   activeTab === tab.key
                     ? 'bg-indigo-600 text-white'
                     : 'bg-slate-800 text-slate-400 hover:text-slate-200 hover:bg-slate-700'
@@ -149,8 +154,9 @@ const ResultsPanel: React.FC<ResultsPanelProps> = ({ results, nodes, elements, l
         {isOpen && hasResults && activeTab !== 'equilibrium' && (
           <button
             onClick={(e) => { e.stopPropagation(); exportCSV(); }}
-            className="ml-auto px-2 py-0.5 rounded text-[10px] font-semibold bg-slate-800 text-slate-400 hover:text-emerald-300 hover:bg-slate-700 transition-colors flex items-center gap-1"
+            className="ml-auto flex shrink-0 items-center gap-1 rounded bg-slate-800 px-2 py-0.5 text-[10px] font-semibold text-slate-400 transition-colors hover:bg-slate-700 hover:text-emerald-300 focus:outline-none focus:ring-2 focus:ring-emerald-400/40"
             title="导出 CSV"
+            aria-label="导出 CSV"
           >
             <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
@@ -160,7 +166,7 @@ const ResultsPanel: React.FC<ResultsPanelProps> = ({ results, nodes, elements, l
         )}
 
         {!isOpen && hasResults && (
-          <span className="ml-auto text-[10px] text-slate-500">
+          <span className="ml-auto truncate text-[10px] text-slate-500">
             {results.reactions.length} 个反力 · {results.elements.length} 个单元 · {results.displacements?.length ?? 0} 个位移
           </span>
         )}

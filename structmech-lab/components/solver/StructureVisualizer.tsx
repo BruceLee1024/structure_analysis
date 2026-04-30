@@ -430,9 +430,9 @@ const DiagramView = React.memo(({
     }, [interactive, toPx, nodes, elements, onAddLoad]);
 
     return (
-        <div className="w-full h-full flex flex-col bg-slate-900 group">
-            <div className="px-3 py-2 bg-slate-800 border-b border-slate-700 flex items-center justify-between shrink-0">
-                <span className="text-xs font-bold text-slate-300 uppercase tracking-wider">{title}</span>
+        <div className="group flex h-full w-full flex-col bg-slate-900">
+            <div className="flex shrink-0 items-center justify-between border-b border-slate-700 bg-slate-800 px-3 py-2">
+                <span className="truncate text-xs font-bold uppercase tracking-normal text-slate-300 sm:tracking-wider">{title}</span>
             </div>
             <div className="flex-1 relative min-h-0 overflow-hidden">
                 <svg ref={svgRef} viewBox={`0 0 ${transform.width} ${transform.height}`}
@@ -553,20 +553,20 @@ const StructureVisualizer: React.FC<StructureVisualizerProps> = ({ params, nodes
 
   return (
       <div className="flex h-full w-full flex-col gap-2">
-          <div className="flex-1 min-h-0 rounded-xl border border-slate-700 overflow-hidden shadow-sm relative">
+          <div className="min-h-64 flex-1 overflow-hidden rounded-lg border border-slate-700 shadow-sm relative">
               <DiagramView mode="Editor" title="结构模型 (Structure Model)" showLoads interactive {...viewProps} />
           </div>
-          <div className="flex-1 min-h-0 grid grid-cols-2 grid-rows-2 gap-2">
-              <div className="rounded-xl border border-slate-700 overflow-hidden shadow-sm relative">
+          <div className="grid min-h-[34rem] flex-1 grid-cols-1 gap-2 sm:min-h-0 sm:grid-cols-2 sm:grid-rows-2">
+              <div className="min-h-40 overflow-hidden rounded-lg border border-slate-700 shadow-sm relative">
                   <DiagramView mode="M" title={`弯矩图 M_max=${maxValues.m.toFixed(2)} kNm`} {...viewProps} />
               </div>
-              <div className="rounded-xl border border-slate-700 overflow-hidden shadow-sm relative">
+              <div className="min-h-40 overflow-hidden rounded-lg border border-slate-700 shadow-sm relative">
                   <DiagramView mode="V" title={`剪力图 V_max=${maxValues.v.toFixed(2)} kN`} {...viewProps} />
               </div>
-              <div className="rounded-xl border border-slate-700 overflow-hidden shadow-sm relative">
+              <div className="min-h-40 overflow-hidden rounded-lg border border-slate-700 shadow-sm relative">
                   <DiagramView mode="N" title={`轴力图 N_max=${maxValues.n.toFixed(2)} kN`} {...viewProps} />
               </div>
-              <div className="rounded-xl border border-slate-700 overflow-hidden shadow-sm relative">
+              <div className="min-h-40 overflow-hidden rounded-lg border border-slate-700 shadow-sm relative">
                   <DiagramView mode="D" title={`变形图 δ_max=${maxValues.d.toFixed(4)} mm`} {...viewProps} />
               </div>
           </div>
