@@ -13,7 +13,8 @@
     "baseUrl": ".",
     "types": [
       "node",
-      "vitest/globals"
+      "vitest/globals",
+      "vite/client"
     ],
     "moduleResolution": "bundler",
     "isolatedModules": true,

@@ -92,7 +92,7 @@ const ActivationModal: React.FC<ActivationModalProps> = ({ isOpen, onClose, onAc
               </div>
               <div className="bg-white rounded-xl p-3">
                 <img 
-                  src="/structure_analysis/wechat-qr.png" 
+                  src={`${import.meta.env.BASE_URL}wechat-qr.png`} 
                   alt="微信二维码" 
                   className="w-full h-auto rounded-lg"
                 />
