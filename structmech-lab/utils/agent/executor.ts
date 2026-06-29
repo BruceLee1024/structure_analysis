@@ -1,5 +1,6 @@
 import { StructureType, type Load, type SolverNode, type SolverParams } from '@/types';
 import { generateGeometry } from '@/utils/geometryGenerator';
+import { DEFAULT_LOAD_CASE_ID, getActiveLoadCaseId } from '@/utils/loadCases';
 import { describeAgentAction } from './actionText';
 import type { AgentAction, AgentExecutionResult, AgentSessionState, AgentSnapshot } from './types';
 
@@ -65,6 +66,8 @@ export function applyAgentActions(params: SolverParams, actions: AgentAction[]):
   const appliedActions: AgentAction[] = [];
 
   for (const action of actions) {
+    const currentLoadCaseId = getActiveLoadCaseId(draft);
+
     if (action.kind === 'create_structure') {
       draft = regenerateGeometry({
         ...draft,
@@ -116,6 +119,7 @@ export function applyAgentActions(params: SolverParams, actions: AgentAction[]):
           elementId: typeof l.elementId === 'number' ? l.elementId : elements[0]?.id,
           nodeId: typeof l.nodeId === 'number' ? l.nodeId : undefined,
           location: clampLocation(parseNumeric(l.location, 0.5)),
+          loadCaseId: currentLoadCaseId,
         }));
 
         const xs = nodes.map(n => n.x);
@@ -174,6 +178,7 @@ export function applyAgentActions(params: SolverParams, actions: AgentAction[]):
         direction: (action.payload.direction as 'x' | 'y') ?? 'y',
         elementId: targetElementId(draft, requestedSpan),
         location: clampLocation(parseNumeric(action.payload.location, 0.5)),
+        loadCaseId: currentLoadCaseId || DEFAULT_LOAD_CASE_ID,
       };
       draft = { ...draft, loads: [...draft.loads, load] };
       appliedActions.push({ ...action, payload: { ...action.payload, loadId } });

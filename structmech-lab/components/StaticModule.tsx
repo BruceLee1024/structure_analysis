@@ -131,68 +131,162 @@ const FormulaCard: React.FC<{ title: string; formula: string; desc?: string }> =
 
 // ==================== 几何组成分析 ====================
 const GeometryAnalysis: React.FC = () => {
-  const [nodes, setNodes] = useState(4);
-  const [bars, setBars] = useState(5);
+  const [mode, setMode] = useState<'rigid' | 'truss'>('rigid');
+  const [rigidBodies, setRigidBodies] = useState(1);
+  const [hinges, setHinges] = useState(0);
   const [constraints, setConstraints] = useState(3);
+  const [joints, setJoints] = useState(3);
+  const [members, setMembers] = useState(3);
+  const [supportLinks, setSupportLinks] = useState(3);
   const [preset, setPreset] = useState<string>('custom');
   const { bubble, sync, ctx, milestone, dismissMilestone } = useAIEngine({ module: 'static', subModule: 'geometry' });
-  
+
   const presets = [
-    { id: 'custom', name: '自定义', n: 0, b: 0, c: 0 },
-    { id: 'simple_beam', name: '简支梁', n: 2, b: 1, c: 3 },
-    { id: 'cantilever', name: '悬臂梁', n: 2, b: 1, c: 3 },
-    { id: 'truss3', name: '三角桁架', n: 3, b: 3, c: 3 },
-    { id: 'frame', name: '门式刚架', n: 4, b: 3, c: 4 },
-    { id: 'indeterminate', name: '一次超静定梁', n: 3, b: 2, c: 4 },
+    { id: 'custom', mode: 'rigid' as const, name: '自定义', m: 1, h: 0, r: 3 },
+    { id: 'simple_beam', mode: 'rigid' as const, name: '简支梁', m: 1, h: 0, r: 3 },
+    { id: 'cantilever', mode: 'rigid' as const, name: '悬臂梁', m: 1, h: 0, r: 3 },
+    { id: 'three_hinged_arch', mode: 'rigid' as const, name: '三铰拱', m: 2, h: 1, r: 4 },
+    { id: 'redundant_beam', mode: 'rigid' as const, name: '一次超静定梁', m: 1, h: 0, r: 4 },
+    { id: 'triangle_truss', mode: 'truss' as const, name: '三角桁架', j: 3, b: 3, r: 3 },
+    { id: 'square_truss', mode: 'truss' as const, name: '无斜杆四边形', j: 4, b: 4, r: 3 },
+    { id: 'braced_truss', mode: 'truss' as const, name: '有斜杆四边形', j: 4, b: 5, r: 3 },
+    { id: 'redundant_truss', mode: 'truss' as const, name: '多余杆桁架', j: 4, b: 6, r: 3 },
   ];
 
   const handlePreset = (id: string) => {
     setPreset(id);
     const p = presets.find(x => x.id === id);
-    if (p && id !== 'custom') { setNodes(p.n); setBars(p.b); setConstraints(p.c); }
+    if (!p || id === 'custom') return;
+    setMode(p.mode);
+    if (p.mode === 'rigid') {
+      setRigidBodies(p.m);
+      setHinges(p.h);
+      setConstraints(p.r);
+    } else {
+      setJoints(p.j);
+      setMembers(p.b);
+      setSupportLinks(p.r);
+    }
   };
-  
-  const W = 3 * nodes - 2 * bars - constraints;
-  
+
+  const isRigidMode = mode === 'rigid';
+  const W = isRigidMode
+    ? 3 * rigidBodies - 2 * hinges - constraints
+    : 2 * joints - members - supportLinks;
+
   const getStatus = () => {
-    if (W > 0) return { text: '几何可变体系', color: 'text-red-600', bg: 'bg-gradient-to-br from-red-50 to-red-100/50 border-red-200', icon: '⚠' };
-    if (W === 0) return { text: '满足静定必要条件', color: 'text-green-600', bg: 'bg-gradient-to-br from-green-50 to-green-100/50 border-green-200', icon: '✓' };
-    return { text: `${Math.abs(W)}次超静定`, color: 'text-blue-600', bg: 'bg-gradient-to-br from-blue-50 to-blue-100/50 border-blue-200', icon: '🔒' };
+    if (W > 0) return { text: '几何可变体系', short: '缺少约束', color: 'text-red-600', bg: 'bg-red-50 border-red-200', icon: '!' };
+    if (W === 0) return { text: '满足静定必要条件', short: '数量刚好', color: 'text-emerald-600', bg: 'bg-emerald-50 border-emerald-200', icon: '✓' };
+    return { text: `${Math.abs(W)}次超静定`, short: '有多余约束', color: 'text-blue-600', bg: 'bg-blue-50 border-blue-200', icon: '+' };
   };
+
   const status = getStatus();
+  const formula = isRigidMode ? 'W = 3m - 2h - r' : 'W = 2j - b - r';
+  const substituted = isRigidMode
+    ? `W = 3×${rigidBodies} - 2×${hinges} - ${constraints} = ${W}`
+    : `W = 2×${joints} - ${members} - ${supportLinks} = ${W}`;
+  const modeTitle = isRigidMode ? '刚片体系' : '铰接桁架体系';
+  const modeDesc = isRigidMode
+    ? '把梁、刚架杆段或组合刚片视为平面刚体，内部铰提供二元约束。'
+    : '把节点视为铰结点，杆件只承受轴力，每根杆提供一个约束。';
+
   // Sync AI context
   useEffect(() => {
     sync(
-      { nodes, bars, constraints, preset },
-      { W, status: status.text },
+      isRigidMode
+        ? { mode, rigidBodies, hinges, constraints, preset }
+        : { mode, joints, members, supportLinks, preset },
+      { W, status: status.text, formula },
     );
-  }, [nodes, bars, constraints, preset, W, status.text, sync]);
+  }, [isRigidMode, mode, rigidBodies, hinges, constraints, joints, members, supportLinks, preset, W, status.text, formula, sync]);
+
   const context = ctx.toPromptString();
 
-  const solveSteps = useMemo(() => [
-    { title: '确定节点数', equation: `n = ${nodes}`, explanation: '节点（刚片）= 体系中可自由运动的刚体数量，不包括地基' },
-    { title: '计算节点自由度', equation: `3n = 3 × ${nodes} = ${3 * nodes}`, explanation: '平面上每个刚体有3种独立运动：水平平移(→)、竖向平移(↑)、绕点转动(↻)，所以每个节点贡献3个自由度' },
-    { title: '计算约束总数', equation: `2b + c = 2 × ${bars} + ${constraints} = ${2 * bars + constraints}`, explanation: 'b 为铰的数量，每个铰限制2个相对位移(水平+竖向)；c 为单约束数(如链杆、滚动支座各提供1个约束)' },
-    { title: '代入公式', equation: `W = 3n − 2b − c = ${3*nodes} − ${2*bars} − ${constraints}`, result: `${W}` },
-    { title: '判定结果', result: `${status.icon} ${status.text}`, explanation: W > 0 ? '体系缺少约束，可自由运动' : W === 0 ? 'W=0 是静定的必要条件，但不充分——还需验证几何组成是否合理（如三链杆不共点、不共线等）' : `有${Math.abs(W)}个多余约束，为超静定结构，需用力法/位移法求解` },
-  ], [nodes, bars, constraints, W, status]);
+  const solveSteps = useMemo(() => {
+    if (isRigidMode) {
+      return [
+        { title: '选择分析对象', equation: modeTitle, explanation: '梁、刚架或刚片组合优先用刚片体系口径。不要把梁端点直接当作桁架节点套用。' },
+        { title: '计算刚片自由度', equation: `3m = 3 × ${rigidBodies} = ${3 * rigidBodies}`, explanation: '平面内每个刚片有3个自由度：水平、竖向和转动。' },
+        { title: '计算约束总数', equation: `2h + r = 2 × ${hinges} + ${constraints} = ${2 * hinges + constraints}`, explanation: '一个内部铰限制两个相对平移；每根支座链杆或滚动约束提供一个约束。' },
+        { title: '代入公式', equation: substituted, result: `${W}` },
+        { title: '判定结果', result: `${status.icon} ${status.text}`, explanation: W > 0 ? '约束数量不足，体系存在机构运动。' : W === 0 ? '数量条件刚好；还要检查三链杆是否共点、平行或布置成瞬变。' : `存在 ${Math.abs(W)} 个多余约束，属于超静定体系。` },
+      ];
+    }
+    return [
+      { title: '选择分析对象', equation: modeTitle, explanation: '铰接桁架按节点自由度计数，不使用刚片体系中的内部铰项。' },
+      { title: '计算节点自由度', equation: `2j = 2 × ${joints} = ${2 * joints}`, explanation: '平面铰结点只有水平和竖向两个平动自由度。' },
+      { title: '计算约束总数', equation: `b + r = ${members} + ${supportLinks} = ${members + supportLinks}`, explanation: '每根二力杆提供一个杆轴方向约束；支座链杆按单约束计数。' },
+      { title: '代入公式', equation: substituted, result: `${W}` },
+      { title: '判定结果', result: `${status.icon} ${status.text}`, explanation: W > 0 ? '杆件或支座约束不足，桁架会成为机构。' : W === 0 ? '数量条件刚好；还要检查节点是否共线、杆件是否形成稳定三角形。' : `存在 ${Math.abs(W)} 个多余约束，属于超静定桁架。` },
+    ];
+  }, [isRigidMode, modeTitle, rigidBodies, hinges, constraints, substituted, W, status, joints, members, supportLinks]);
+
+  const ruleCards = [
+    { cond: 'W > 0', label: '几何可变', desc: '缺少约束或杆件', active: W > 0, activeCls: 'bg-red-50 border-red-400', textCls: 'text-red-600' },
+    { cond: 'W = 0', label: '静定必要条件', desc: '数量刚好，仍需构造检查', active: W === 0, activeCls: 'bg-emerald-50 border-emerald-400', textCls: 'text-emerald-600' },
+    { cond: 'W < 0', label: '超静定', desc: '存在多余约束', active: W < 0, activeCls: 'bg-blue-50 border-blue-400', textCls: 'text-blue-600' },
+  ];
+
+  const glossary = isRigidMode
+    ? [
+        { name: '刚片 m', desc: '可视为整体运动的刚体', count: '3自由度/个' },
+        { name: '内部铰 h', desc: '连接两个刚片的铰', count: '2约束/个' },
+        { name: '支座链杆 r', desc: '滚动支座或链杆等单约束', count: '1约束/根' },
+        { name: '固定端', desc: '限制两个平动和一个转动', count: '3约束' },
+      ]
+    : [
+        { name: '节点 j', desc: '铰接桁架的结点', count: '2自由度/个' },
+        { name: '杆件 b', desc: '只承受轴力的二力杆', count: '1约束/根' },
+        { name: '固定铰支座', desc: '限制水平和竖向平动', count: '2约束' },
+        { name: '滚动支座', desc: '限制一个方向平动', count: '1约束' },
+      ];
 
   return (
     <div className="flex flex-col lg:flex-row gap-3 min-h-full p-3">
       <CollapsiblePanel title="参数" icon="🔧" side="left" storageKey="param-panel-geometry">
         <div className="bg-white rounded-xl border border-slate-200/80 p-3 shadow-sm overflow-y-auto">
-          <h4 className="text-xs font-semibold text-slate-600 mb-2 flex items-center gap-1.5">🔧 参数设置</h4>
+          <h4 className="text-xs font-semibold text-slate-600 mb-2 flex items-center gap-1.5">参数设置</h4>
+          <div className="grid grid-cols-2 gap-1.5 mb-3 rounded-lg bg-slate-100 p-1">
+            {[
+              { id: 'rigid' as const, label: '刚片体系' },
+              { id: 'truss' as const, label: '桁架体系' },
+            ].map(item => (
+              <button
+                key={item.id}
+                onClick={() => { setMode(item.id); setPreset('custom'); }}
+                className={`px-2 py-1.5 text-[11px] font-semibold rounded-md transition-all ${
+                  mode === item.id ? 'bg-white text-blue-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+                }`}
+              >
+                {item.label}
+              </button>
+            ))}
+          </div>
           <div className="flex flex-wrap gap-1.5 mb-3">
-            {presets.map(p => (
+            {presets.filter(p => p.id === 'custom' || p.mode === mode).map(p => (
               <button key={p.id} onClick={() => handlePreset(p.id)}
                 className={`px-2 py-1 text-[10px] font-medium rounded-lg transition-all ${preset === p.id ? 'bg-blue-600 text-white shadow-md' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>
                 {p.name}
               </button>
             ))}
           </div>
-          <Slider label="节点数 n" value={nodes} min={2} max={10} unit="" onChange={(v) => { setNodes(v); setPreset('custom'); }} />
-          <Slider label="杆件数 b" value={bars} min={1} max={15} unit="" onChange={(v) => { setBars(v); setPreset('custom'); }} />
-          <Slider label="约束数 c" value={constraints} min={0} max={10} unit="" onChange={(v) => { setConstraints(v); setPreset('custom'); }} />
+          {isRigidMode ? (
+            <>
+              <Slider label="刚片数 m" value={rigidBodies} min={1} max={10} unit="" onChange={(v) => { setRigidBodies(v); setPreset('custom'); }} />
+              <Slider label="内部铰数 h" value={hinges} min={0} max={10} unit="" onChange={(v) => { setHinges(v); setPreset('custom'); }} />
+              <Slider label="支座链杆数 r" value={constraints} min={0} max={12} unit="" onChange={(v) => { setConstraints(v); setPreset('custom'); }} />
+            </>
+          ) : (
+            <>
+              <Slider label="节点数 j" value={joints} min={2} max={14} unit="" onChange={(v) => { setJoints(v); setPreset('custom'); }} />
+              <Slider label="杆件数 b" value={members} min={1} max={24} unit="" onChange={(v) => { setMembers(v); setPreset('custom'); }} />
+              <Slider label="支座链杆数 r" value={supportLinks} min={0} max={12} unit="" onChange={(v) => { setSupportLinks(v); setPreset('custom'); }} />
+            </>
+          )}
+          <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-[11px] leading-relaxed text-slate-600">
+            <div className="font-semibold text-slate-700">{modeTitle}</div>
+            <div>{modeDesc}</div>
+          </div>
         </div>
       </CollapsiblePanel>
       <div className="flex-1 flex flex-col gap-3 min-w-0">
@@ -201,18 +295,28 @@ const GeometryAnalysis: React.FC = () => {
         <AIBubble message={bubble} />
         {/* 上：公式 */}
         <div className="bg-white rounded-xl border border-slate-200/80 p-4 shadow-sm flex flex-col gap-3">
-            <h4 className="text-xs font-semibold text-slate-600 flex items-center gap-1.5">📐 计算公式</h4>
-            <div className="bg-gradient-to-br from-slate-50 to-white rounded-lg p-4 text-center border border-slate-100 flex-1 flex flex-col justify-center">
-              <div className="text-sm text-slate-500 mb-3">平面体系自由度公式</div>
-              <div className="text-3xl font-serif mb-3 text-slate-800">W = 3n − 2b − c</div>
+            <h4 className="text-xs font-semibold text-slate-600 flex items-center gap-1.5">计算公式</h4>
+            <div className="rounded-lg p-4 text-center border border-slate-100 bg-slate-50 flex-1 flex flex-col justify-center">
+              <div className="text-sm text-slate-500 mb-3">{modeTitle}自由度公式</div>
+              <div className="text-3xl font-serif mb-3 text-slate-800">{formula}</div>
               <div className="text-base text-slate-600">
-                W = 3×{nodes} − 2×{bars} − {constraints} = <span className={`text-xl font-bold ${status.color}`}>{W}</span>
+                {substituted.replace(`= ${W}`, '= ')}<span className={`text-xl font-bold ${status.color}`}>{W}</span>
               </div>
               <div className="flex flex-wrap justify-center gap-x-4 gap-y-1 mt-3 text-xs text-slate-500">
-                <span><strong className="text-slate-700">n</strong> = 节点(刚片)数</span>
-                <span><strong className="text-slate-700">b</strong> = 铰(二元约束)数</span>
-                <span><strong className="text-slate-700">c</strong> = 单约束数</span>
-                <span><strong className="text-slate-700">W</strong> = 自由度(多余约束数)</span>
+                {isRigidMode ? (
+                  <>
+                    <span><strong className="text-slate-700">m</strong> = 刚片数</span>
+                    <span><strong className="text-slate-700">h</strong> = 内部铰数</span>
+                    <span><strong className="text-slate-700">r</strong> = 支座链杆数</span>
+                  </>
+                ) : (
+                  <>
+                    <span><strong className="text-slate-700">j</strong> = 节点数</span>
+                    <span><strong className="text-slate-700">b</strong> = 杆件数</span>
+                    <span><strong className="text-slate-700">r</strong> = 支座链杆数</span>
+                  </>
+                )}
+                <span><strong className="text-slate-700">W</strong> = 计算自由度</span>
               </div>
             </div>
             {/* 判定结果 */}
@@ -224,21 +328,11 @@ const GeometryAnalysis: React.FC = () => {
 
         {/* 中：判定规则 */}
         <div className="bg-white rounded-xl border border-slate-200/80 p-4 shadow-sm">
-          <h4 className="text-xs font-semibold text-slate-600 mb-3 flex items-center gap-1.5">📊 判定规则</h4>
+          <h4 className="text-xs font-semibold text-slate-600 mb-3 flex items-center gap-1.5">判定规则</h4>
           <div className="flex flex-col sm:flex-row gap-2 sm:gap-3">
-            {[
-              { cond: 'W > 0', label: '几何可变体系', desc: '缺少约束，不稳定', active: W > 0,
-                activeCls: 'bg-gradient-to-br from-red-50 to-red-100/50 border-red-400 shadow-md scale-[1.02]',
-                textCls: 'text-red-600' },
-              { cond: 'W = 0', label: '静定(必要条件)', desc: '约束数量刚好，但需验证几何组成', active: W === 0,
-                activeCls: 'bg-gradient-to-br from-green-50 to-green-100/50 border-green-400 shadow-md scale-[1.02]',
-                textCls: 'text-green-600' },
-              { cond: 'W < 0', label: '超静定结构', desc: '多余约束，需特殊方法', active: W < 0,
-                activeCls: 'bg-gradient-to-br from-blue-50 to-blue-100/50 border-blue-400 shadow-md scale-[1.02]',
-                textCls: 'text-blue-600' },
-            ].map(r => (
+            {ruleCards.map(r => (
               <div key={r.cond} className={`p-4 rounded-xl text-center flex-1 border-2 transition-all duration-300 ${
-                r.active ? r.activeCls : 'bg-slate-50 border-slate-200 opacity-60'
+                r.active ? `${r.activeCls} shadow-md scale-[1.02]` : 'bg-slate-50 border-slate-200 opacity-60'
               }`}>
                 <div className={`text-xl font-bold ${r.active ? r.textCls : 'text-slate-400'}`}>{r.cond}</div>
                 <div className={`text-sm mt-1 ${r.active ? 'text-slate-700 font-semibold' : 'text-slate-400'}`}>{r.label}</div>
@@ -247,7 +341,7 @@ const GeometryAnalysis: React.FC = () => {
             ))}
           </div>
           <div className="mt-2 px-3 py-2 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-800">
-            <strong>⚠ 注意：</strong>W ≤ 0 是几何不变的<strong>必要条件</strong>，不是充分条件。即使 W = 0，若约束布置不当（如三链杆共点/共线），体系仍可能是瞬变体系。需进一步做几何组成分析。
+            <strong>注意：</strong>W = 0 只说明数量刚好，不等于一定几何不变。还要检查约束方向、交点、杆件三角形和是否存在瞬变构造。
           </div>
         </div>
 
@@ -257,23 +351,22 @@ const GeometryAnalysis: React.FC = () => {
             <SolutionSteps steps={solveSteps} title="求解过程" />
           </div>
           <div className="bg-white rounded-2xl border border-slate-200/70 p-4 lg:p-5 shadow-sm w-full h-fit">
-            <h4 className="text-xs font-semibold text-slate-600 mb-3">📖 约束类型速查</h4>
+            <h4 className="text-xs font-semibold text-slate-600 mb-3">口径速查</h4>
             <div className="space-y-2">
-              {[
-                { name: '固定铰支座', count: 2, icon: '△' },
-                { name: '滚动铰支座', count: 1, icon: '○' },
-                { name: '固定端（嵌固）', count: 3, icon: '▐' },
-                { name: '单铰连接', count: 2, icon: '◎' },
-                { name: '链杆', count: 1, icon: '—' },
-              ].map(c => (
-                <div key={c.name} className="flex items-center justify-between px-3 py-2 bg-slate-50 rounded-lg">
-                  <span className="text-sm text-slate-600 flex items-center gap-2">
-                    <span className="text-base text-slate-400 w-5 text-center font-mono">{c.icon}</span>
-                    {c.name}
-                  </span>
-                  <span className="text-sm font-bold text-blue-600">{c.count}约束</span>
+              {glossary.map(c => (
+                <div key={c.name} className="px-3 py-2 bg-slate-50 rounded-lg">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-sm font-semibold text-slate-700">{c.name}</span>
+                    <span className="text-xs font-bold text-blue-600 whitespace-nowrap">{c.count}</span>
+                  </div>
+                  <div className="mt-0.5 text-[11px] leading-snug text-slate-500">{c.desc}</div>
                 </div>
               ))}
+            </div>
+            <div className="mt-3 rounded-lg border border-slate-200 px-3 py-2 text-[11px] leading-relaxed text-slate-600">
+              {isRigidMode
+                ? '梁和刚架通常先看成刚片体系；只有明确为铰接杆系时才切换到桁架公式。'
+                : '桁架公式默认杆件两端铰接、荷载作用在节点；刚接杆系不要用这个口径。'}
             </div>
           </div>
         </div>

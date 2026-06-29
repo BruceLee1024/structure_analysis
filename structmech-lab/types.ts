@@ -52,10 +52,59 @@ export interface Load {
   id: string;
   elementId?: number;
   nodeId?: number;
+  loadCaseId?: string;
   type: 'point' | 'distributed' | 'moment';
   magnitude: number;
   direction?: 'x' | 'y';
   location?: number;
+}
+
+export interface LoadCase {
+  id: string;
+  name: string;
+  category: 'dead' | 'live' | 'wind' | 'quake' | 'custom';
+}
+
+export interface LoadCombination {
+  id: string;
+  name: string;
+  factors: Record<string, number>;
+}
+
+export type AnalysisTargetType = 'loadCase' | 'combination';
+
+export interface DiagramLayerSettings {
+  grid: boolean;
+  loads: boolean;
+  reactions: boolean;
+  moment: boolean;
+  shear: boolean;
+  axial: boolean;
+  deflection: boolean;
+  labels: boolean;
+  diagramScale: number;
+}
+
+export type ResultSelectionKind = 'moment' | 'shear' | 'axial' | 'deflection';
+
+export interface ResultSelection {
+  kind: ResultSelectionKind;
+  label: string;
+  elementId?: number;
+  nodeId?: number;
+  x?: number;
+  globalX?: number;
+  globalY?: number;
+  component?: 'dx' | 'dy';
+}
+
+export type ModelIssueSeverity = 'error' | 'warning' | 'info';
+
+export interface ModelIssue {
+  id: string;
+  severity: ModelIssueSeverity;
+  title: string;
+  detail: string;
 }
 
 export interface SolverParams {
@@ -75,6 +124,11 @@ export interface SolverParams {
   nodes: SolverNode[];
   elements: SolverElement[];
   loads: Load[];
+  loadCases?: LoadCase[];
+  loadCombinations?: LoadCombination[];
+  activeLoadCaseId?: string;
+  activeAnalysisType?: AnalysisTargetType;
+  activeAnalysisId?: string;
 }
 
 export interface ElementResult {

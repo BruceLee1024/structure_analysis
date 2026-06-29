@@ -1,13 +1,20 @@
 import React, { useState, useRef, useCallback, useMemo } from 'react';
-import { AnalysisResult, SolverNode, SolverElement, Load } from '../../types';
+import { AnalysisResult, SolverNode, SolverElement, Load, AnalysisTargetType, type ResultSelection } from '../../types';
+import { getResultExtrema, getSelectionForExtreme, type ResultExtrema } from '../../utils/resultExtrema';
+import type { EnvelopeRow } from '../../utils/resultEnvelope';
 
-type ResultTab = 'reactions' | 'elements' | 'displacements' | 'equilibrium';
+type ResultTab = 'controls' | 'envelope' | 'reactions' | 'elements' | 'displacements' | 'equilibrium';
 
 interface ResultsPanelProps {
   results: AnalysisResult;
   nodes: SolverNode[];
   elements: SolverElement[];
   loads: Load[];
+  activeAnalysis?: { type: AnalysisTargetType; id: string; label: string };
+  selectedResult?: ResultSelection | null;
+  onSelectResult?: (selection: ResultSelection) => void;
+  envelopeRows?: EnvelopeRow[];
+  onActivateAnalysis?: (target: { type: AnalysisTargetType; id: string }) => void;
 }
 
 const formatForce = (val: number) => {
@@ -25,17 +32,67 @@ const formatRot = (val: number) => {
     return val.toFixed(6);
 };
 
+const controlRows = (extrema: ResultExtrema) => [
+  {
+    key: 'moment',
+    label: '最大弯矩',
+    location: extrema.moment ? `单元 ${extrema.moment.elementId} · x=${extrema.moment.x.toFixed(2)} m` : '无',
+    value: extrema.moment ? formatForce(extrema.moment.value) : '0.00',
+    unit: 'kN·m',
+    colorClass: 'text-blue-300',
+    selection: getSelectionForExtreme(extrema, 'moment'),
+  },
+  {
+    key: 'shear',
+    label: '最大剪力',
+    location: extrema.shear ? `单元 ${extrema.shear.elementId} · x=${extrema.shear.x.toFixed(2)} m` : '无',
+    value: extrema.shear ? formatForce(extrema.shear.value) : '0.00',
+    unit: 'kN',
+    colorClass: 'text-rose-300',
+    selection: getSelectionForExtreme(extrema, 'shear'),
+  },
+  {
+    key: 'axial',
+    label: '最大轴力',
+    location: extrema.axial ? `单元 ${extrema.axial.elementId} · x=${extrema.axial.x.toFixed(2)} m` : '无',
+    value: extrema.axial ? formatForce(extrema.axial.value) : '0.00',
+    unit: 'kN',
+    colorClass: 'text-emerald-300',
+    selection: getSelectionForExtreme(extrema, 'axial'),
+  },
+  {
+    key: 'deflection',
+    label: '最大位移',
+    location: extrema.deflection ? `节点 ${extrema.deflection.nodeId} · ${extrema.deflection.component}` : '无',
+    value: extrema.deflection ? formatDisp(extrema.deflection.value) : '0.0000',
+    unit: 'mm',
+    colorClass: 'text-purple-300',
+    selection: getSelectionForExtreme(extrema, 'deflection'),
+  },
+];
+
 const MIN_HEIGHT = 36;
 const DEFAULT_HEIGHT = 240;
 const MAX_HEIGHT = 500;
 
-const ResultsPanel: React.FC<ResultsPanelProps> = ({ results, nodes, elements, loads }) => {
+const ResultsPanel: React.FC<ResultsPanelProps> = ({
+  results,
+  nodes,
+  elements,
+  loads,
+  activeAnalysis,
+  selectedResult,
+  onSelectResult,
+  envelopeRows = [],
+  onActivateAnalysis,
+}) => {
   const [isOpen, setIsOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<ResultTab>('reactions');
   const [panelHeight, setPanelHeight] = useState(DEFAULT_HEIGHT);
   const isDragging = useRef(false);
   const startY = useRef(0);
   const startHeight = useRef(0);
+  const extrema = useMemo(() => getResultExtrema(results), [results]);
 
   const handleDragStart = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
@@ -60,6 +117,8 @@ const ResultsPanel: React.FC<ResultsPanelProps> = ({ results, nodes, elements, l
   }, [panelHeight]);
 
   const tabs: { key: ResultTab; label: string; icon: string }[] = [
+    { key: 'controls', label: '控制项', icon: '◎' },
+    { key: 'envelope', label: '包络', icon: '◇' },
     { key: 'reactions', label: '支座反力', icon: '⬆' },
     { key: 'elements', label: '单元内力', icon: '≡' },
     { key: 'displacements', label: '节点位移', icon: '↔' },
@@ -88,6 +147,16 @@ const ResultsPanel: React.FC<ResultsPanelProps> = ({ results, nodes, elements, l
       (results.displacements ?? []).forEach(d => {
         csv += `${d.nodeId},${formatDisp(d.dx)},${formatDisp(d.dy)},${formatRot(d.rotation)}\n`;
       });
+    } else if (activeTab === 'controls') {
+      csv = '控制项,位置,数值,单位\n';
+      controlRows(extrema).forEach(row => {
+        csv += `${row.label},${row.location},${row.value},${row.unit}\n`;
+      });
+    } else if (activeTab === 'envelope') {
+      csv = '包络项,来源,位置,数值,单位\n';
+      envelopeRows.forEach(row => {
+        csv += `${row.label},${row.sourceLabel},${row.location},${row.value ?? ''},${row.unit}\n`;
+      });
     }
     if (!csv) return;
     const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
@@ -97,7 +166,7 @@ const ResultsPanel: React.FC<ResultsPanelProps> = ({ results, nodes, elements, l
     a.download = `${activeTab}_results.csv`;
     a.click();
     URL.revokeObjectURL(url);
-  }, [activeTab, results, elements]);
+  }, [activeTab, results, elements, extrema]);
 
   return (
     <div
@@ -161,7 +230,7 @@ const ResultsPanel: React.FC<ResultsPanelProps> = ({ results, nodes, elements, l
 
         {!isOpen && hasResults && (
           <span className="ml-auto text-[10px] text-slate-500">
-            {results.reactions.length} 个反力 · {results.elements.length} 个单元 · {results.displacements?.length ?? 0} 个位移
+            {activeAnalysis ? `${activeAnalysis.label} · ` : ''}{results.reactions.length} 个反力 · {results.elements.length} 个单元 · {results.displacements?.length ?? 0} 个位移
           </span>
         )}
       </div>
@@ -175,6 +244,21 @@ const ResultsPanel: React.FC<ResultsPanelProps> = ({ results, nodes, elements, l
             </div>
           ) : (
             <>
+              {activeAnalysis && (
+                <div className="mb-2 rounded border border-slate-800 bg-slate-950/40 px-2 py-1 text-[10px] text-slate-400">
+                  当前结果：<span className="font-semibold text-slate-200">{activeAnalysis.label}</span>
+                  <span className="ml-2 text-slate-500">{activeAnalysis.type === 'combination' ? '荷载组合' : '单一工况'} · {loads.length} 条参与荷载</span>
+                </div>
+              )}
+              {activeTab === 'controls' && <ControlsTable extrema={extrema} selectedResult={selectedResult} onSelectResult={onSelectResult} />}
+              {activeTab === 'envelope' && (
+                <EnvelopeTable
+                  rows={envelopeRows}
+                  selectedResult={selectedResult}
+                  onSelectResult={onSelectResult}
+                  onActivateAnalysis={onActivateAnalysis}
+                />
+              )}
               {activeTab === 'reactions' && <ReactionsTable results={results} />}
               {activeTab === 'elements' && <ElementsTable results={results} nodes={nodes} elements={elements} />}
               {activeTab === 'displacements' && <DisplacementsTable results={results} />}
@@ -190,6 +274,149 @@ const ResultsPanel: React.FC<ResultsPanelProps> = ({ results, nodes, elements, l
 const thClass = "text-right py-1.5 px-2 font-semibold sticky top-0 bg-slate-900 z-10";
 const thClassLeft = "text-left py-1.5 px-2 font-semibold sticky top-0 bg-slate-900 z-10";
 const thClassCenter = "text-center py-1.5 px-2 font-semibold sticky top-0 bg-slate-900 z-10";
+
+/* ===== Controls Tab ===== */
+const isSameSelection = (a?: ResultSelection | null, b?: ResultSelection | null) => {
+  if (!a || !b) return false;
+  return (
+    a.kind === b.kind &&
+    a.elementId === b.elementId &&
+    a.nodeId === b.nodeId &&
+    a.component === b.component &&
+    Math.abs((a.x ?? 0) - (b.x ?? 0)) < 1e-6
+  );
+};
+
+const ControlsTable: React.FC<{
+  extrema: ResultExtrema;
+  selectedResult?: ResultSelection | null;
+  onSelectResult?: (selection: ResultSelection) => void;
+}> = ({ extrema, selectedResult, onSelectResult }) => (
+  <table className="w-full text-[11px]">
+    <thead>
+      <tr className="text-slate-400 border-b border-slate-700">
+        <th className={thClassLeft}>控制项</th>
+        <th className={thClassLeft}>位置</th>
+        <th className={thClass}>数值</th>
+        <th className={thClassLeft}>单位</th>
+        <th className={thClassCenter}>定位</th>
+      </tr>
+    </thead>
+    <tbody>
+      {controlRows(extrema).map(row => {
+        const selected = isSameSelection(selectedResult, row.selection);
+        return (
+        <tr key={row.key} className={`border-b border-slate-800/50 transition-colors ${selected ? 'bg-cyan-500/10 ring-1 ring-inset ring-cyan-500/30' : 'hover:bg-slate-800/40'}`}>
+          <td className="py-1.5 px-2 font-semibold text-slate-300">{row.label}</td>
+          <td className="py-1.5 px-2 font-mono text-[10px] text-slate-400">{row.location}</td>
+          <td className={`py-1.5 px-2 text-right font-mono font-bold ${row.colorClass}`}>{row.value}</td>
+          <td className="py-1.5 px-2 text-slate-500">{row.unit}</td>
+          <td className="py-1.5 px-2 text-center">
+            <button
+              type="button"
+              disabled={!row.selection || !onSelectResult}
+              onClick={() => row.selection && onSelectResult?.(row.selection)}
+              className={`rounded border px-2 py-0.5 text-[10px] font-semibold transition-colors ${
+                selected
+                  ? 'border-cyan-400/60 bg-cyan-500/20 text-cyan-100'
+                  : 'border-slate-700 bg-slate-800 text-slate-400 hover:border-cyan-500/50 hover:text-cyan-200 disabled:cursor-not-allowed disabled:opacity-40'
+              }`}
+              title="在结构图中高亮控制位置"
+            >
+              定位
+            </button>
+          </td>
+        </tr>
+      )})}
+    </tbody>
+  </table>
+);
+
+const envelopeColorClass = (key: EnvelopeRow['key']) => {
+  if (key.startsWith('moment')) return 'text-blue-300';
+  if (key.startsWith('shear')) return 'text-rose-300';
+  if (key.startsWith('axial')) return 'text-emerald-300';
+  return 'text-purple-300';
+};
+
+const formatEnvelopeValue = (row: EnvelopeRow) => {
+  if (row.value === null) return '无';
+  if (row.key === 'deflection-abs') return formatDisp(row.value);
+  return formatForce(row.value);
+};
+
+const EnvelopeTable: React.FC<{
+  rows: EnvelopeRow[];
+  selectedResult?: ResultSelection | null;
+  onSelectResult?: (selection: ResultSelection) => void;
+  onActivateAnalysis?: (target: { type: AnalysisTargetType; id: string }) => void;
+}> = ({ rows, selectedResult, onSelectResult, onActivateAnalysis }) => {
+  if (rows.length === 0) {
+    return <div className="text-slate-500 text-xs text-center py-4">暂无包络数据，请至少添加一个工况荷载</div>;
+  }
+
+  return (
+    <table className="w-full text-[11px]">
+      <thead>
+        <tr className="text-slate-400 border-b border-slate-700">
+          <th className={thClassLeft}>包络项</th>
+          <th className={thClassLeft}>控制来源</th>
+          <th className={thClassLeft}>位置</th>
+          <th className={thClass}>数值</th>
+          <th className={thClassLeft}>单位</th>
+          <th className={thClassCenter}>操作</th>
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map(row => {
+          const selected = isSameSelection(selectedResult, row.selection);
+          return (
+            <tr key={row.key} className={`border-b border-slate-800/50 transition-colors ${selected ? 'bg-cyan-500/10 ring-1 ring-inset ring-cyan-500/30' : 'hover:bg-slate-800/40'}`}>
+              <td className="py-1.5 px-2 font-semibold text-slate-300">{row.label}</td>
+              <td className="py-1.5 px-2 text-slate-400">
+                <span className="font-semibold text-slate-300">{row.sourceLabel}</span>
+                {row.sourceType && (
+                  <span className="ml-1 rounded bg-slate-800 px-1 py-0.5 text-[9px] text-slate-500">
+                    {row.sourceType === 'combination' ? '组合' : '工况'}
+                  </span>
+                )}
+              </td>
+              <td className="py-1.5 px-2 font-mono text-[10px] text-slate-400">{row.location}</td>
+              <td className={`py-1.5 px-2 text-right font-mono font-bold ${envelopeColorClass(row.key)}`}>{formatEnvelopeValue(row)}</td>
+              <td className="py-1.5 px-2 text-slate-500">{row.unit}</td>
+              <td className="py-1.5 px-2">
+                <div className="flex justify-center gap-1">
+                  <button
+                    type="button"
+                    disabled={!row.selection || !onSelectResult}
+                    onClick={() => row.selection && onSelectResult?.(row.selection)}
+                    className={`rounded border px-2 py-0.5 text-[10px] font-semibold transition-colors ${
+                      selected
+                        ? 'border-cyan-400/60 bg-cyan-500/20 text-cyan-100'
+                        : 'border-slate-700 bg-slate-800 text-slate-400 hover:border-cyan-500/50 hover:text-cyan-200 disabled:cursor-not-allowed disabled:opacity-40'
+                    }`}
+                    title="在结构图中高亮包络控制位置"
+                  >
+                    定位
+                  </button>
+                  <button
+                    type="button"
+                    disabled={!row.sourceType || !row.sourceId || !onActivateAnalysis}
+                    onClick={() => row.sourceType && row.sourceId && onActivateAnalysis?.({ type: row.sourceType, id: row.sourceId })}
+                    className="rounded border border-slate-700 bg-slate-800 px-2 py-0.5 text-[10px] font-semibold text-slate-400 transition-colors hover:border-indigo-500/50 hover:text-indigo-200 disabled:cursor-not-allowed disabled:opacity-40"
+                    title="切换到控制来源的计算结果"
+                  >
+                    查看
+                  </button>
+                </div>
+              </td>
+            </tr>
+          );
+        })}
+      </tbody>
+    </table>
+  );
+};
 
 /* ===== Reactions Tab ===== */
 const ReactionsTable: React.FC<{ results: AnalysisResult }> = ({ results }) => {

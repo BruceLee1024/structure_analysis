@@ -1,5 +1,5 @@
 import React, { useState, useRef, useMemo, useCallback } from 'react';
-import { SolverParams, AnalysisResult, SolverNode, SolverElement, Load, StructureType } from '../../types';
+import { SolverParams, AnalysisResult, SolverNode, SolverElement, Load, StructureType, DiagramLayerSettings, type ResultSelection } from '../../types';
 import { calculateExactValues } from '../../utils/solver';
 
 const VIS_WIDTH = 800;
@@ -29,6 +29,8 @@ interface DiagramViewProps {
     onAddLoad: (load: Load) => void;
     maxValues: { m: number, v: number, n: number, d: number };
     structureType: StructureType;
+    layers: DiagramLayerSettings;
+    selectedResult?: ResultSelection | null;
 }
 
 const formatValue = (val: number) => {
@@ -38,7 +40,7 @@ const formatValue = (val: number) => {
 
 const DiagramView = React.memo(({ 
     mode, title, showLoads, interactive, nodes, elements, results, loads, transform,
-    activeLocation, setActiveLocation, onAddLoad, maxValues, structureType
+    activeLocation, setActiveLocation, onAddLoad, maxValues, structureType, layers, selectedResult
 }: DiagramViewProps) => {
     const svgRef = useRef<SVGSVGElement>(null);
     const isEditor = mode === 'Editor';
@@ -55,14 +57,14 @@ const DiagramView = React.memo(({
     }, [transform]);
 
     const { mScale, vScale, nScale, dScale } = useMemo(() => {
-        const maxVisSize = 50;
+        const maxVisSize = 50 * layers.diagramScale;
         return {
             mScale: maxValues.m > 1e-6 ? maxVisSize / maxValues.m : 0,
             vScale: maxValues.v > 1e-6 ? maxVisSize / maxValues.v : 0,
             nScale: maxValues.n > 1e-6 ? maxVisSize / maxValues.n : 0,
             dScale: maxValues.d > 1e-6 ? maxVisSize / maxValues.d : 0
         };
-    }, [maxValues]);
+    }, [maxValues, layers.diagramScale]);
 
     const structureLayer = useMemo(() => (
         <g>
@@ -192,7 +194,7 @@ const DiagramView = React.memo(({
 
 
     const reactionsLayer = useMemo(() => {
-        if (!isEditor) return null;
+        if (!isEditor || !layers.reactions) return null;
         return results.reactions.map(r => {
             const n = nodes.find(nd => nd.id === r.nodeId);
             if (!n) return null;
@@ -228,12 +230,91 @@ const DiagramView = React.memo(({
             }
             return items.length > 0 ? <g key={`react-${r.nodeId}`}>{items}</g> : null;
         });
-    }, [isEditor, results.reactions, nodes, toPx]);
+    }, [isEditor, layers.reactions, results.reactions, nodes, toPx]);
+
+    const selectionLayer = useMemo(() => {
+        if (!selectedResult) return null;
+
+        const markers: React.ReactNode[] = [];
+        let labelPoint: { x: number; y: number } | null = null;
+
+        if (selectedResult.elementId !== undefined) {
+            const el = elements.find(item => item.id === selectedResult.elementId);
+            const n1 = el ? nodes.find(node => node.id === el.startNode) : null;
+            const n2 = el ? nodes.find(node => node.id === el.endNode) : null;
+            if (el && n1 && n2) {
+                const p1 = toPx(n1.x, n1.y);
+                const p2 = toPx(n2.x, n2.y);
+                markers.push(
+                    <line
+                        key="selected-element"
+                        x1={p1.x}
+                        y1={p1.y}
+                        x2={p2.x}
+                        y2={p2.y}
+                        stroke="#22d3ee"
+                        strokeWidth="6"
+                        strokeOpacity="0.75"
+                        strokeLinecap="round"
+                        vectorEffect="non-scaling-stroke"
+                    />,
+                );
+                labelPoint = selectedResult.globalX !== undefined && selectedResult.globalY !== undefined
+                    ? toPx(selectedResult.globalX, selectedResult.globalY)
+                    : { x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2 };
+                markers.push(
+                    <g key="selected-station">
+                        <line x1={labelPoint.x - 8} y1={labelPoint.y} x2={labelPoint.x + 8} y2={labelPoint.y} stroke="#e0f2fe" strokeWidth="2" vectorEffect="non-scaling-stroke" />
+                        <line x1={labelPoint.x} y1={labelPoint.y - 8} x2={labelPoint.x} y2={labelPoint.y + 8} stroke="#e0f2fe" strokeWidth="2" vectorEffect="non-scaling-stroke" />
+                        <circle cx={labelPoint.x} cy={labelPoint.y} r="6" fill="#0891b2" stroke="#e0f2fe" strokeWidth="2" />
+                    </g>,
+                );
+            }
+        } else if (selectedResult.nodeId !== undefined) {
+            const node = nodes.find(item => item.id === selectedResult.nodeId);
+            if (node) {
+                labelPoint = toPx(node.x, node.y);
+                markers.push(
+                    <g key="selected-node">
+                        <circle cx={labelPoint.x} cy={labelPoint.y} r="11" fill="#0891b2" fillOpacity="0.35" stroke="#e0f2fe" strokeWidth="2.5" />
+                        <circle cx={labelPoint.x} cy={labelPoint.y} r="4" fill="#e0f2fe" />
+                    </g>,
+                );
+            }
+        }
+
+        if (!labelPoint || markers.length === 0) return null;
+
+        const labelX = Math.min(transform.width - 120, Math.max(8, labelPoint.x + 10));
+        const labelY = Math.max(18, labelPoint.y - 12);
+
+        return (
+            <g pointerEvents="none">
+                {markers}
+                <text
+                    x={labelX}
+                    y={labelY}
+                    fill="#cffafe"
+                    fontSize="10"
+                    fontWeight="bold"
+                    stroke="#0f172a"
+                    strokeWidth="3"
+                    paintOrder="stroke"
+                >
+                    {selectedResult.label}
+                </text>
+            </g>
+        );
+    }, [selectedResult, elements, nodes, toPx, transform.width]);
 
     const resultsLayer = useMemo(() => {
         if (isEditor) return null;
         const paths: React.ReactNode[] = [];
         const labels: React.ReactNode[] = [];
+        let deflectionPeak: {
+            value: number;
+            point: { x: number; y: number };
+        } | null = null;
 
         results.elements.forEach(res => {
             const el = elements.find(e => e.id === res.elementId);
@@ -250,6 +331,30 @@ const DiagramView = React.memo(({
             const ndx = dx / (Math.sqrt(dx*dx + dy*dy) || 1);
             const snx = -ndy; 
             const sny = ndx;
+            const worldDx = n2.x - n1.x;
+            const worldDy = n2.y - n1.y;
+            const elLen = Math.sqrt(worldDx * worldDx + worldDy * worldDy);
+            const c = elLen > 0 ? worldDx / elLen : 1;
+            const s = elLen > 0 ? worldDy / elLen : 0;
+            const deflectionMagnifier = maxValues.d > 1e-6
+                ? (50 * layers.diagramScale) / ((maxValues.d / 1000) * transform.scale)
+                : 0;
+
+            const deformedPoint = (x: number) => {
+                const xi = elLen > 1e-9 ? x / elLen : 0;
+                const uAxial = (1 - xi) * res.u_local[0] + xi * res.u_local[3];
+                const nA = 1 - 3 * xi * xi + 2 * xi * xi * xi;
+                const nB = elLen * (xi - 2 * xi * xi + xi * xi * xi);
+                const nC = 3 * xi * xi - 2 * xi * xi * xi;
+                const nD = elLen * (-xi * xi + xi * xi * xi);
+                const vLocal = nA * res.u_local[1] + nB * res.u_local[2] + nC * res.u_local[4] + nD * res.u_local[5];
+                const dispX = c * uAxial - s * vLocal;
+                const dispY = s * uAxial + c * vLocal;
+                return toPx(
+                    n1.x + c * x + dispX * deflectionMagnifier,
+                    n1.y + s * x + dispY * deflectionMagnifier,
+                );
+            };
 
             let path = `M ${start.x} ${start.y}`;
             let color = "#3b82f6";
@@ -266,10 +371,10 @@ const DiagramView = React.memo(({
                 if(mode === 'N') { val = st.axial * nScale; color = "#10b981"; }
                 if(mode === 'D') { val = -st.deflectionY * dScale; color = "#a855f7"; fillOp = 0; }
 
-                const elLen = Math.sqrt(Math.pow(n2.x - n1.x, 2) + Math.pow(n2.y - n1.y, 2));
                 const t = elLen > 0 ? st.x / elLen : 0;
-                const px = start.x + dx * t + snx * val;
-                const py = start.y + dy * t + sny * val;
+                const defPoint = mode === 'D' ? deformedPoint(st.x) : null;
+                const px = defPoint ? defPoint.x : start.x + dx * t + snx * val;
+                const py = defPoint ? defPoint.y : start.y + dy * t + sny * val;
                 
                 if (i === 0) path = `M ${px} ${py}`;
                 else path += ` L ${px} ${py}`;
@@ -284,13 +389,16 @@ const DiagramView = React.memo(({
                     peakPx = { x: start.x + dx * t, y: start.y + dy * t };
                     peakTipPx = { x: px, y: py };
                 }
+                if (mode === 'D' && Math.abs(rawVal) > Math.abs(deflectionPeak?.value ?? 0)) {
+                    deflectionPeak = { value: rawVal, point: { x: px, y: py } };
+                }
             });
 
             if (mode !== 'D') path += ` L ${end.x} ${end.y} L ${start.x} ${start.y} Z`;
             paths.push(<path key={`p-${el.id}`} d={path} fill={color} fillOpacity={fillOp} stroke={color} strokeWidth="2" vectorEffect="non-scaling-stroke" />);
 
-            if (Math.abs(peakVal) > 0.01) {
-                const unit = mode === 'M' ? 'kNm' : mode === 'D' ? 'mm' : 'kN';
+            if (layers.labels && mode !== 'D' && Math.abs(peakVal) > 0.01) {
+                const unit = mode === 'M' ? 'kNm' : 'kN';
                 const labelOffX = snx > 0 ? 6 : -6;
                 const labelOffY = sny > 0 ? -4 : 12;
                 const anchor = snx > 0 ? 'start' : 'end';
@@ -303,8 +411,28 @@ const DiagramView = React.memo(({
             }
         });
 
+        if (layers.labels && mode === 'D' && deflectionPeak && Math.abs(deflectionPeak.value) > 0.005) {
+            labels.push(
+                <g key="deflection-global-label">
+                    <circle cx={deflectionPeak.point.x} cy={deflectionPeak.point.y} r="3" fill="#a855f7" stroke="white" strokeWidth="1.5" />
+                    <text
+                        x={deflectionPeak.point.x + 8}
+                        y={deflectionPeak.point.y - 8}
+                        fill="#c084fc"
+                        fontSize="10"
+                        fontWeight="bold"
+                        stroke="#0f172a"
+                        strokeWidth="3"
+                        paintOrder="stroke"
+                    >
+                        δmax {deflectionPeak.value.toFixed(2)} mm
+                    </text>
+                </g>
+            );
+        }
+
         return <>{paths}{labels}</>;
-    }, [isEditor, mode, results, elements, nodes, toPx, mScale, vScale, nScale, dScale]);
+    }, [isEditor, mode, results, elements, nodes, toPx, mScale, vScale, nScale, dScale, layers.labels, layers.diagramScale, maxValues.d, transform.scale]);
 
     const activeData = useMemo(() => {
         if (!activeLocation) return null;
@@ -446,14 +574,19 @@ const DiagramView = React.memo(({
                         <marker id="arrowhead-load-dist" markerWidth="6" markerHeight="6" refX="3" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 z" fill="#a855f7" /></marker>
                         <marker id="arrowhead-reaction" markerWidth="8" markerHeight="8" refX="4" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#22d3ee" /></marker>
                     </defs>
-                    <pattern id={`grid-${mode}`} width="40" height="40" patternUnits="userSpaceOnUse">
-                        <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#1e293b" strokeWidth="1"/>
-                    </pattern>
-                    <rect width="100%" height="100%" fill={`url(#grid-${mode})`} />
+                    {layers.grid && (
+                        <>
+                            <pattern id={`grid-${mode}`} width="40" height="40" patternUnits="userSpaceOnUse">
+                                <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#1e293b" strokeWidth="1"/>
+                            </pattern>
+                            <rect width="100%" height="100%" fill={`url(#grid-${mode})`} />
+                        </>
+                    )}
                     {structureLayer}
                     {reactionsLayer}
                     {loadsLayer}
                     {resultsLayer}
+                    {selectionLayer}
                     {activeData && (() => {
                         const px = toPx(activeData.globalX, activeData.globalY);
                         let val = 0;
@@ -516,9 +649,11 @@ interface StructureVisualizerProps {
   results: AnalysisResult;
   loads: Load[]; 
   onAddLoad: (load: Load) => void;
+  layers: DiagramLayerSettings;
+  selectedResult?: ResultSelection | null;
 }
 
-const StructureVisualizer: React.FC<StructureVisualizerProps> = ({ params, nodes, elements, results, loads, onAddLoad }) => {
+const StructureVisualizer: React.FC<StructureVisualizerProps> = ({ params, nodes, elements, results, loads, onAddLoad, layers, selectedResult }) => {
   const [activeLocation, setActiveLocation] = useState<{x: number, y: number} | null>(null);
 
   const transform = useMemo(() => {
@@ -548,27 +683,31 @@ const StructureVisualizer: React.FC<StructureVisualizerProps> = ({ params, nodes
   }), [results]);
 
   const viewProps = useMemo(() => ({
-    nodes, elements, results, loads, transform, activeLocation, setActiveLocation, onAddLoad, maxValues, structureType: params.structureType
-  }), [nodes, elements, results, loads, transform, activeLocation, setActiveLocation, onAddLoad, maxValues, params.structureType]);
+    nodes, elements, results, loads, transform, activeLocation, setActiveLocation, onAddLoad, maxValues, structureType: params.structureType, layers, selectedResult
+  }), [nodes, elements, results, loads, transform, activeLocation, setActiveLocation, onAddLoad, maxValues, params.structureType, layers, selectedResult]);
+
+  const resultViews = [
+    layers.moment ? { mode: 'M' as const, title: `弯矩图 M_max=${maxValues.m.toFixed(2)} kNm` } : null,
+    layers.shear ? { mode: 'V' as const, title: `剪力图 V_max=${maxValues.v.toFixed(2)} kN` } : null,
+    layers.axial ? { mode: 'N' as const, title: `轴力图 N_max=${maxValues.n.toFixed(2)} kN` } : null,
+    layers.deflection ? { mode: 'D' as const, title: `变形图 δ_max=${maxValues.d.toFixed(4)} mm · ${layers.diagramScale.toFixed(2)}x` } : null,
+  ].filter(Boolean) as { mode: 'M' | 'V' | 'N' | 'D'; title: string }[];
 
   return (
       <div className="flex h-full w-full flex-col gap-2">
           <div className="flex-1 min-h-0 rounded-xl border border-slate-700 overflow-hidden shadow-sm relative">
-              <DiagramView mode="Editor" title="结构模型 (Structure Model)" showLoads interactive {...viewProps} />
+              <DiagramView mode="Editor" title="结构模型 (Structure Model)" showLoads={layers.loads} interactive {...viewProps} />
           </div>
-          <div className="flex-1 min-h-0 grid grid-cols-2 grid-rows-2 gap-2">
-              <div className="rounded-xl border border-slate-700 overflow-hidden shadow-sm relative">
-                  <DiagramView mode="M" title={`弯矩图 M_max=${maxValues.m.toFixed(2)} kNm`} {...viewProps} />
-              </div>
-              <div className="rounded-xl border border-slate-700 overflow-hidden shadow-sm relative">
-                  <DiagramView mode="V" title={`剪力图 V_max=${maxValues.v.toFixed(2)} kN`} {...viewProps} />
-              </div>
-              <div className="rounded-xl border border-slate-700 overflow-hidden shadow-sm relative">
-                  <DiagramView mode="N" title={`轴力图 N_max=${maxValues.n.toFixed(2)} kN`} {...viewProps} />
-              </div>
-              <div className="rounded-xl border border-slate-700 overflow-hidden shadow-sm relative">
-                  <DiagramView mode="D" title={`变形图 δ_max=${maxValues.d.toFixed(4)} mm`} {...viewProps} />
-              </div>
+          <div className={`flex-1 min-h-0 grid gap-2 ${resultViews.length <= 1 ? 'grid-cols-1' : 'grid-cols-2'} ${resultViews.length > 2 ? 'grid-rows-2' : 'grid-rows-1'}`}>
+              {resultViews.length === 0 ? (
+                <div className="rounded-xl border border-slate-700 bg-slate-900 flex items-center justify-center text-xs text-slate-500">
+                  已隐藏全部结果图层
+                </div>
+              ) : resultViews.map(view => (
+                <div key={view.mode} className="rounded-xl border border-slate-700 overflow-hidden shadow-sm relative">
+                  <DiagramView mode={view.mode} title={view.title} {...viewProps} />
+                </div>
+              ))}
           </div>
       </div>
   );
