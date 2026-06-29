@@ -84,7 +84,7 @@ const DarkSlider: React.FC<DarkSliderProps> = ({ label, value, min, max, step, a
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
-  const decimals = step < 0.01 ? 3 : step < 0.1 ? 2 : step < 1 ? 1 : 0;
+  const decimals = step < 0.001 ? 4 : step < 0.01 ? 3 : step < 0.1 ? 2 : step < 1 ? 1 : 0;
   const ac = accentClasses[accent] || accentClasses.indigo;
 
   useEffect(() => {
@@ -98,10 +98,14 @@ const DarkSlider: React.FC<DarkSliderProps> = ({ label, value, min, max, step, a
     setEditing(false);
     const parsed = parseFloat(draft);
     if (!isNaN(parsed)) {
-      const stepped = Math.round(parsed / step) * step;
-      onChange(parseFloat(stepped.toFixed(decimals)));
+      if (step >= 1) {
+        const stepped = Math.round(parsed / step) * step;
+        onChange(parseFloat(stepped.toFixed(0)));
+      } else {
+        onChange(parseFloat(parsed.toFixed(4)));
+      }
     }
-  }, [draft, step, decimals, onChange]);
+  }, [draft, step, onChange]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter') commitValue();
@@ -127,7 +131,7 @@ const DarkSlider: React.FC<DarkSliderProps> = ({ label, value, min, max, step, a
           />
         ) : (
           <button
-            onClick={() => { setDraft(value.toFixed(decimals)); setEditing(true); }}
+            onClick={() => { setDraft(parseFloat(value.toFixed(4)).toString()); setEditing(true); }}
             className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-slate-800 hover:bg-slate-700 hover:ring-1 hover:ring-slate-500 transition-all cursor-text"
             title="点击输入精确值"
           >
@@ -382,7 +386,7 @@ const ControlPanel: React.FC<ControlPanelProps> = ({ params, setParams, onClearL
                         )}
                         <div>
                             <label className="text-[8px] text-slate-500 block">大小 ({load.type === 'moment' ? 'kNm' : load.type === 'distributed' ? 'kN/m' : 'kN'})</label>
-                            <input type="number" value={load.magnitude} onChange={(e) => updateLoad(load.id, 'magnitude', parseFloat(e.target.value))}
+                            <input type="number" step="0.0001" value={load.magnitude} onChange={(e) => updateLoad(load.id, 'magnitude', parseFloat(e.target.value))}
                                 className="w-full bg-slate-900 border border-slate-700 rounded px-1 text-white focus:border-rose-500 outline-none text-[10px]"/>
                         </div>
                         {load.type !== 'moment' ? (

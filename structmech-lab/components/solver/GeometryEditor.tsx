@@ -131,11 +131,11 @@ const GeometryEditor: React.FC<GeometryEditorProps> = ({ params, setParams, clas
                         <div className="flex flex-col gap-0.5">
                             <div className="flex items-center gap-0.5">
                                 <span className="text-[8px] text-slate-500 w-2">X</span>
-                                <input type="number" value={n.x} onChange={(e) => updateNode(n.id, 'x', Number(e.target.value))} className="bg-slate-900 w-full p-0.5 rounded border border-slate-700 text-center text-white focus:border-violet-500 outline-none text-[10px]" step="0.1"/>
+                                <input type="number" value={n.x} onChange={(e) => updateNode(n.id, 'x', Number(e.target.value))} className="bg-slate-900 w-full p-0.5 rounded border border-slate-700 text-center text-white focus:border-violet-500 outline-none text-[10px]" step="0.0001"/>
                             </div>
                             <div className="flex items-center gap-0.5">
                                 <span className="text-[8px] text-slate-500 w-2">Y</span>
-                                <input type="number" value={n.y} onChange={(e) => updateNode(n.id, 'y', Number(e.target.value))} className="bg-slate-900 w-full p-0.5 rounded border border-slate-700 text-center text-white focus:border-violet-500 outline-none text-[10px]" step="0.1"/>
+                                <input type="number" value={n.y} onChange={(e) => updateNode(n.id, 'y', Number(e.target.value))} className="bg-slate-900 w-full p-0.5 rounded border border-slate-700 text-center text-white focus:border-violet-500 outline-none text-[10px]" step="0.0001"/>
                             </div>
                         </div>
                         <div className="flex flex-col gap-0.5">

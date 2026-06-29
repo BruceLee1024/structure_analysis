@@ -508,12 +508,12 @@ const VisionResultEditor: React.FC<VisionResultEditorProps> = ({ parsed, onConfi
                     </td>
                     <td className="px-1 py-0.5">
                       {l.type !== 'distributed' ? (
-                        <input type="number" step="0.1" min="0" max="1" value={l.location} className={inputClass}
+                        <input type="number" step="0.0001" min="0" max="1" value={l.location} className={inputClass}
                           onChange={e => updateLoad(l.id, 'location', parseFloat(e.target.value) || 0)} />
                       ) : <span className="text-slate-500">全跨</span>}
                     </td>
                     <td className="px-1 py-0.5">
-                      <input type="number" step="1" value={l.magnitude} className={inputClass}
+                      <input type="number" step="0.0001" value={l.magnitude} className={inputClass}
                         onChange={e => updateLoad(l.id, 'magnitude', parseFloat(e.target.value) || 0)} />
                     </td>
                     <td className="px-1 py-0.5">

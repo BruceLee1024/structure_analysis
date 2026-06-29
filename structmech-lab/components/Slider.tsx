@@ -14,7 +14,7 @@ export const Slider: React.FC<SliderProps> = ({ label, value, min, max, step = 1
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
-  const decimals = step < 0.01 ? 3 : step < 0.1 ? 2 : step < 1 ? 1 : 0;
+  const decimals = step < 0.001 ? 4 : step < 0.01 ? 3 : step < 0.1 ? 2 : step < 1 ? 1 : 0;
 
   useEffect(() => {
     if (editing && inputRef.current) {
@@ -27,10 +27,14 @@ export const Slider: React.FC<SliderProps> = ({ label, value, min, max, step = 1
     setEditing(false);
     const parsed = parseFloat(draft);
     if (!isNaN(parsed)) {
-      const stepped = Math.round(parsed / step) * step;
-      onChange(parseFloat(stepped.toFixed(decimals)));
+      if (step >= 1) {
+        const stepped = Math.round(parsed / step) * step;
+        onChange(parseFloat(stepped.toFixed(0)));
+      } else {
+        onChange(parseFloat(parsed.toFixed(4)));
+      }
     }
-  }, [draft, step, decimals, onChange]);
+  }, [draft, step, onChange]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter') commitValue();
@@ -57,7 +61,7 @@ export const Slider: React.FC<SliderProps> = ({ label, value, min, max, step = 1
           </div>
         ) : (
           <button
-            onClick={() => { setDraft(value.toFixed(decimals)); setEditing(true); }}
+            onClick={() => { setDraft(parseFloat(value.toFixed(4)).toString()); setEditing(true); }}
             className="text-sm font-mono text-blue-700 bg-blue-50 px-3 py-1 rounded-lg font-medium hover:bg-blue-100 hover:ring-2 hover:ring-blue-300 transition-all cursor-text"
             title="点击输入精确值"
           >

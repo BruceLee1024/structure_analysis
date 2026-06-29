@@ -1,11 +1,7 @@
 import { SolverNode, SolverElement, Load, AnalysisResult, ElementResult, StiffnessType } from '../types';
 
 const cleanValue = (val: number) => {
-    const abs = Math.abs(val);
-    if (abs < 1e-4) return 0;
-    const rounded = Math.round(val);
-    if (Math.abs(val - rounded) < 0.02) return rounded;
-    if (Math.abs(val * 2 - Math.round(val * 2)) < 0.02) return Math.round(val * 2) / 2;
+    if (Math.abs(val) < 1e-9) return 0;
     return parseFloat(val.toFixed(4));
 };
 
