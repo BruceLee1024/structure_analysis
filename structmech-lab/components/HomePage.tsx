@@ -3,6 +3,7 @@ import {
   GitBranch, TrendingUp, Calculator, Sparkles, Layers, Box, Triangle, Archive,
   Activity, Zap, BarChart3, BookOpen, ChevronRight, Shapes, Bot, X
 } from 'lucide-react';
+import wechatQrUrl from '../wechat-qr.png';
 
 // 社交媒体图标组件
 const DouyinIcon = () => (
@@ -477,7 +478,7 @@ const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
             {/* 二维码 */}
             <div className="bg-white rounded-2xl p-4 mb-4">
               <img 
-                src="./wechat-qr.png" 
+                src={wechatQrUrl}
                 alt="微信二维码" 
                 className="w-full h-auto rounded-lg"
               />

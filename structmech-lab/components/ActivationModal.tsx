@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { X, Key, Lock, CheckCircle, AlertCircle } from 'lucide-react';
+import wechatQrUrl from '../wechat-qr.png';
 
 // 微信图标
 const WechatIcon = () => (
@@ -92,7 +93,7 @@ const ActivationModal: React.FC<ActivationModalProps> = ({ isOpen, onClose, onAc
               </div>
               <div className="bg-white rounded-xl p-3">
                 <img 
-                  src="/structure_analysis/wechat-qr.png" 
+                  src={wechatQrUrl}
                   alt="微信二维码" 
                   className="w-full h-auto rounded-lg"
                 />
