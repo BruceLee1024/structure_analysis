@@ -12,7 +12,13 @@ import {
   loadCaseName,
 } from '../../utils/loadCases';
 import { summarizeIssues } from '../../utils/modelValidation';
-import { applyMaterialAndSection, MATERIAL_PRESETS, SECTION_PRESETS } from '../../utils/sectionLibrary';
+import {
+  applyMaterialAndSection,
+  calculateSectionProperties,
+  MATERIAL_PRESETS,
+  SECTION_PRESETS,
+  type SectionShape,
+} from '../../utils/sectionLibrary';
 
 type DiagramToggleKey = Exclude<keyof DiagramLayerSettings, 'diagramScale'>;
 
@@ -56,11 +62,13 @@ const CollapsibleSection: React.FC<CollapsibleSectionProps> = ({
   const [isOpen, setIsOpen] = useState(defaultOpen);
 
   return (
-    <div className={className ?? 'space-y-2 border-t border-slate-800 pt-3'}>
+    <div className={className ?? 'overflow-hidden rounded-xl border border-slate-800 bg-slate-900/55'}>
       <button
         type="button"
         onClick={() => setIsOpen(prev => !prev)}
-        className="flex w-full items-center justify-between rounded-xl border border-slate-800 bg-slate-900/60 px-3 py-2 text-left transition-colors hover:bg-slate-800/80"
+        className={`flex w-full items-center justify-between px-3 py-2.5 text-left transition-colors hover:bg-slate-900 ${
+          isOpen ? 'border-b border-slate-800/80' : ''
+        }`}
       >
         <div className="min-w-0">
           <h3 className={`truncate text-xs font-semibold uppercase tracking-wider ${accentClass}`}>{title}</h3>
@@ -79,7 +87,7 @@ const CollapsibleSection: React.FC<CollapsibleSectionProps> = ({
         </div>
       </button>
 
-      {isOpen ? <div className={contentClassName}>{children}</div> : null}
+      {isOpen ? <div className={`px-3 pb-3 pt-2 ${contentClassName ?? 'space-y-2'}`}>{children}</div> : null}
     </div>
   );
 };
@@ -139,8 +147,8 @@ const DarkSlider: React.FC<DarkSliderProps> = ({ label, value, min, max, step, a
   const displayVal = displayOverride ?? value.toFixed(decimals);
 
   return (
-    <div className={disabled ? 'opacity-40 pointer-events-none' : ''}>
-      <label className="text-[10px] text-slate-300 flex justify-between items-center">
+    <div className={`py-1.5 ${disabled ? 'opacity-40 pointer-events-none' : ''}`}>
+      <label className="flex items-center justify-between gap-3 text-[10px] text-slate-300">
         <span>{label}{unit ? ` (${unit})` : ''}</span>
         {editing ? (
           <input
@@ -165,13 +173,32 @@ const DarkSlider: React.FC<DarkSliderProps> = ({ label, value, min, max, step, a
       </label>
       <input type="range" min={Math.min(min, value)} max={Math.max(max, value)} step={step} value={value}
         onChange={(e) => onChange(Number(e.target.value))}
-        className={`w-full ${ac.slider} h-1 bg-slate-700 rounded-lg appearance-none cursor-pointer`}/>
+        className={`mt-2 w-full ${ac.slider} h-1 bg-slate-700 rounded-lg appearance-none cursor-pointer`}/>
       {(value < min || value > max) && (
         <div className="text-[9px] text-amber-500/70 mt-0.5">默认范围: {min}–{max}{unit ? ` ${unit}` : ''}</div>
       )}
     </div>
   );
 };
+
+const STRUCTURE_OPTIONS: Array<{ type: StructureType; label: string; meta: string; category: 'basic' | 'advanced' | 'custom' }> = [
+  { type: StructureType.Beam, label: '简支/连续梁', meta: '梁式受弯', category: 'basic' },
+  { type: StructureType.PortalFrame, label: '门式刚架', meta: '单跨框架', category: 'basic' },
+  { type: StructureType.Cantilever, label: '悬臂梁', meta: '固定端控制', category: 'basic' },
+  { type: StructureType.GableFrame, label: '人字形刚架', meta: '屋脊高度', category: 'basic' },
+  { type: StructureType.MultiSpanBeam, label: '多跨连续梁', meta: '跨数/悬挑', category: 'advanced' },
+  { type: StructureType.MultiStoryFrame, label: '多层多跨框架', meta: '层数/跨数', category: 'advanced' },
+  { type: StructureType.Truss, label: '桁架', meta: '铰接杆系', category: 'advanced' },
+  { type: StructureType.Custom, label: '自定义', meta: '节点单元编辑', category: 'custom' },
+];
+
+const categoryLabel: Record<(typeof STRUCTURE_OPTIONS)[number]['category'], string> = {
+  basic: '基础',
+  advanced: '参数化',
+  custom: '自由建模',
+};
+
+const getStructureLabel = (type: StructureType) => STRUCTURE_OPTIONS.find(item => item.type === type)?.label ?? '自定义';
 
 const ControlPanel: React.FC<ControlPanelProps> = ({
   params,
@@ -190,6 +217,15 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
 }) => {
   const [selectedMaterialId, setSelectedMaterialId] = useState(MATERIAL_PRESETS[0]?.id ?? '');
   const [selectedSectionId, setSelectedSectionId] = useState(SECTION_PRESETS[1]?.id ?? '');
+  const [sectionShape, setSectionShape] = useState<SectionShape>('rectangle');
+  const [sectionDraft, setSectionDraft] = useState({
+    widthMm: 300,
+    heightMm: 500,
+    webMm: 8,
+    flangeMm: 12,
+    diameterMm: 219,
+    thicknessMm: 8,
+  });
   const [showCombinationEditor, setShowCombinationEditor] = useState(false);
   const importInputRef = useRef<HTMLInputElement>(null);
 
@@ -198,6 +234,7 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
   const activeLoadCaseId = getActiveLoadCaseId(params);
   const activeCaseLoads = getLoadsForCase(params.loads, activeLoadCaseId);
   const issueSummary = summarizeIssues(validationIssues);
+  const calculatedSection = calculateSectionProperties({ shape: sectionShape, ...sectionDraft });
 
   const handleChange = (key: keyof SolverParams, value: any) => {
     setParams(prev => ({ ...prev, [key]: value }));
@@ -355,7 +392,20 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
       setParams(prev => ({ ...prev, loads: [...prev.loads, newLoad] }));
   };
 
-  const handleDragStart = (e: React.DragEvent, type: 'point' | 'distributed' | 'moment') => {
+  const addManualLineLoad = (type: 'distributed' | 'trapezoidal') => {
+      const newLoad: Load = {
+          id: Date.now().toString(),
+          type,
+          magnitude: type === 'trapezoidal' ? 0 : -5,
+          magnitudeEnd: type === 'trapezoidal' ? -8 : undefined,
+          direction: 'y',
+          loadCaseId: activeLoadCaseId,
+          elementId: params.elements[0]?.id || 1,
+      };
+      setParams(prev => ({ ...prev, loads: [...prev.loads, newLoad] }));
+  };
+
+  const handleDragStart = (e: React.DragEvent, type: Load['type']) => {
     e.dataTransfer.setData('loadType', type);
     e.dataTransfer.effectAllowed = 'copy';
   };
@@ -386,6 +436,11 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
 
   const isAxiallyRigid = params.stiffnessType === 'AxiallyRigid';
   const isRigid = params.stiffnessType === 'Rigid';
+  const applyCalculatedSection = () => {
+    if (!calculatedSection) return;
+    handlePropertyChange('crossSectionArea', calculatedSection.A);
+    handlePropertyChange('momentOfInertia', calculatedSection.I);
+  };
   const showWidth = params.structureType !== StructureType.Custom;
   const showHeight = params.structureType !== StructureType.Custom && params.structureType !== StructureType.Beam && params.structureType !== StructureType.MultiSpanBeam && params.structureType !== StructureType.Cantilever;
   const showRoof = params.structureType === StructureType.GableFrame;
@@ -394,7 +449,7 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
   const showOverhang = params.structureType === StructureType.Beam || params.structureType === StructureType.MultiSpanBeam;
 
   return (
-    <div className="w-80 xl:w-[21rem] 2xl:w-[23rem] flex-shrink-0 bg-slate-950 flex flex-col border-r border-slate-800 h-full">
+    <div className="w-[22rem] xl:w-[23rem] 2xl:w-[24rem] flex-shrink-0 bg-slate-950 flex flex-col border-r border-slate-800 h-full">
       <div className="shrink-0 border-b border-slate-800 bg-slate-950/95 px-3 py-3">
         <input
           ref={importInputRef}
@@ -482,68 +537,175 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
       </div>
 
       <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-3 py-3">
-      <CollapsibleSection title="结构类型" accentClass="text-indigo-400" subtitle="选择当前结构类别" className="space-y-2">
-        <select value={params.structureType} onChange={(e) => handleChange('structureType', e.target.value)}
-            className="w-full bg-slate-800 text-slate-200 text-xs rounded p-2 border border-slate-700 focus:ring-1 focus:ring-indigo-500 outline-none">
-            <optgroup label="基础">
-                <option value={StructureType.Beam}>简支/连续梁</option>
-                <option value={StructureType.PortalFrame}>门式刚架</option>
-                <option value={StructureType.Cantilever}>悬臂梁</option>
-                <option value={StructureType.GableFrame}>人字形刚架</option>
-            </optgroup>
-            <optgroup label="高级参数化">
-                <option value={StructureType.MultiSpanBeam}>多跨连续梁</option>
-                <option value={StructureType.MultiStoryFrame}>多层多跨框架</option>
-                <option value={StructureType.Truss}>桁架</option>
-            </optgroup>
-            <option value={StructureType.Custom}>自定义</option>
-        </select>
+      <CollapsibleSection
+        title="建模设置"
+        accentClass="text-indigo-300"
+        subtitle="结构类别、参数化几何与尺寸控制"
+        headerRight={
+          <span className="rounded-md border border-indigo-500/25 bg-indigo-500/10 px-2 py-1 text-[10px] font-semibold text-indigo-200">
+            {getStructureLabel(params.structureType)}
+          </span>
+        }
+      >
+        <div className="space-y-3">
+          <div>
+            <div className="mb-2 flex items-center justify-between gap-2">
+              <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">结构类型</div>
+              <div className="text-[9px] text-slate-600">选择后自动生成几何</div>
+            </div>
+            <div className="grid grid-cols-2 gap-1.5">
+              {STRUCTURE_OPTIONS.map(option => {
+                const active = params.structureType === option.type;
+                return (
+                  <button
+                    key={option.type}
+                    type="button"
+                    onClick={() => handleChange('structureType', option.type)}
+                    className={`min-h-12 rounded-lg border px-2.5 py-2 text-left transition-colors ${
+                      active
+                        ? 'border-indigo-400/70 bg-indigo-500/20 text-indigo-50'
+                        : 'border-slate-800 bg-slate-950/35 text-slate-300 hover:border-slate-700 hover:bg-slate-900'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="truncate text-[11px] font-semibold">{option.label}</span>
+                      <span className={`rounded px-1.5 py-0.5 text-[8px] font-semibold ${
+                        active ? 'bg-indigo-300/20 text-indigo-100' : 'bg-slate-800 text-slate-500'
+                      }`}>
+                        {categoryLabel[option.category]}
+                      </span>
+                    </div>
+                    <div className={`mt-1 truncate text-[9px] ${active ? 'text-indigo-100/70' : 'text-slate-500'}`}>
+                      {option.meta}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="border-t border-slate-800/70 pt-3">
+            <div className="mb-2 flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <div className="text-[10px] font-semibold uppercase tracking-wider text-cyan-300">几何尺寸</div>
+                <div className="mt-0.5 text-[9px] text-slate-500">
+                  {params.structureType === StructureType.Custom ? '自定义模型由节点与单元编辑器控制' : '只显示当前结构需要的参数'}
+                </div>
+              </div>
+              {params.structureType !== StructureType.Custom && (
+                <div className="grid grid-cols-2 gap-1 text-right text-[9px]">
+                  <div className="rounded border border-slate-800 bg-slate-950/50 px-1.5 py-1">
+                    <div className="font-mono text-slate-200">{params.width}</div>
+                    <div className="text-slate-600">m 宽</div>
+                  </div>
+                  {showHeight ? (
+                    <div className="rounded border border-slate-800 bg-slate-950/50 px-1.5 py-1">
+                      <div className="font-mono text-slate-200">{params.height}</div>
+                      <div className="text-slate-600">m 高</div>
+                    </div>
+                  ) : null}
+                </div>
+              )}
+            </div>
+            {params.structureType !== StructureType.Custom ? (
+              <div className="space-y-2">
+                {showWidth && (
+                    <DarkSlider label="总宽度" unit="m" value={params.width} min={3} max={50} step={1} accent="indigo"
+                      onChange={(v) => handleChange('width', v)} />
+                )}
+                {showHeight && (
+                    <DarkSlider label="总高度" unit="m" value={params.height} min={2} max={50} step={1} accent="indigo"
+                      onChange={(v) => handleChange('height', v)} />
+                )}
+                {showRoof && (
+                    <DarkSlider label="屋脊高度" unit="m" value={params.roofHeight} min={0.5} max={5} step={0.1} accent="indigo"
+                      onChange={(v) => handleChange('roofHeight', v)} />
+                )}
+                {showSpans && (
+                    <DarkSlider label={params.structureType === StructureType.Truss ? '桁架段数' : '跨数'} value={params.numSpans} min={2} max={10} step={1} accent="purple"
+                      onChange={(v) => handleChange('numSpans', v)} />
+                )}
+                {showFrameGrid && (
+                    <div className="grid grid-cols-1 gap-2 2xl:grid-cols-2">
+                        <DarkSlider label="跨数" value={params.numBays} min={1} max={6} step={1} accent="purple"
+                          onChange={(v) => handleChange('numBays', v)} />
+                        <DarkSlider label="层数" value={params.numStories} min={1} max={8} step={1} accent="purple"
+                          onChange={(v) => handleChange('numStories', v)} />
+                    </div>
+                )}
+                {showOverhang && (
+                    <div className="grid grid-cols-1 gap-2 2xl:grid-cols-2">
+                        <DarkSlider label="左悬挑" unit="m" value={params.overhangLeft} min={0} max={10} step={0.5} accent="cyan"
+                          onChange={(v) => handleChange('overhangLeft', v)} />
+                        <DarkSlider label="右悬挑" unit="m" value={params.overhangRight} min={0} max={10} step={0.5} accent="cyan"
+                          onChange={(v) => handleChange('overhangRight', v)} />
+                    </div>
+                )}
+              </div>
+            ) : (
+              <div className="text-[10px] leading-relaxed text-slate-400">
+                打开下方“几何建模”编辑节点、单元和约束；结构类型保持为自定义时不会覆盖当前几何。
+              </div>
+            )}
+          </div>
+        </div>
       </CollapsibleSection>
 
-      {params.structureType !== StructureType.Custom && (
-      <CollapsibleSection title="参数化几何" accentClass="text-indigo-400" subtitle="调整当前参数化结构尺寸" className="space-y-2 border-t border-slate-800 pt-3">
-        {showWidth && (
-            <DarkSlider label="总宽度" unit="m" value={params.width} min={3} max={50} step={1} accent="indigo"
-              onChange={(v) => handleChange('width', v)} />
-        )}
-        {showHeight && (
-            <DarkSlider label="总高度" unit="m" value={params.height} min={2} max={50} step={1} accent="indigo"
-              onChange={(v) => handleChange('height', v)} />
-        )}
-        {showRoof && (
-            <DarkSlider label="屋脊高度" unit="m" value={params.roofHeight} min={0.5} max={5} step={0.1} accent="indigo"
-              onChange={(v) => handleChange('roofHeight', v)} />
-        )}
-        {showSpans && (
-            <DarkSlider label={params.structureType === StructureType.Truss ? '桁架段数' : '跨数'} value={params.numSpans} min={2} max={10} step={1} accent="purple"
-              onChange={(v) => handleChange('numSpans', v)} />
-        )}
-        {showFrameGrid && (
-            <>
-                <DarkSlider label="跨数" value={params.numBays} min={1} max={6} step={1} accent="purple"
-                  onChange={(v) => handleChange('numBays', v)} />
-                <DarkSlider label="层数" value={params.numStories} min={1} max={8} step={1} accent="purple"
-                  onChange={(v) => handleChange('numStories', v)} />
-            </>
-        )}
-        {showOverhang && (
-            <>
-                <DarkSlider label="左悬挑" unit="m" value={params.overhangLeft} min={0} max={10} step={0.5} accent="cyan"
-                  onChange={(v) => handleChange('overhangLeft', v)} />
-                <DarkSlider label="右悬挑" unit="m" value={params.overhangRight} min={0} max={10} step={0.5} accent="cyan"
-                  onChange={(v) => handleChange('overhangRight', v)} />
-            </>
-        )}
+      <CollapsibleSection
+        title="单位体系"
+        accentClass="text-teal-300"
+        subtitle="metric-kN-m · 全局坐标输入"
+        defaultOpen={false}
+      >
+        <div className="grid grid-cols-2 gap-1.5 text-[10px]">
+          {[
+            ['长度', 'm'],
+            ['力', 'kN'],
+            ['力矩', 'kN·m'],
+            ['线载', 'kN/m'],
+            ['弹簧 kx, ky', 'kN/m'],
+            ['转簧 kr', 'kN·m/rad'],
+            ['材料 E', 'GPa'],
+            ['惯性矩 I', '10^-6 m^4'],
+          ].map(([label, unit]) => (
+            <div key={label} className="rounded border border-slate-800 bg-slate-950/40 px-2 py-1">
+              <div className="text-slate-500">{label}</div>
+              <div className="font-mono font-semibold text-teal-200">{unit}</div>
+            </div>
+          ))}
+        </div>
+        <div className="rounded border border-slate-800 bg-slate-950/40 px-2 py-1.5 text-[10px] leading-relaxed text-slate-400">
+          正方向采用全局 X 向右、Y 向上；向下荷载请输入负值。单元分布载按全局方向投影到杆件局部坐标参与计算。
+        </div>
       </CollapsibleSection>
-      )}
+
+      <CollapsibleSection
+        title="工程限值"
+        accentClass="text-amber-300"
+        subtitle={`挠度限值 L/${params.deflectionLimitRatio ?? 250}`}
+        defaultOpen={false}
+      >
+        <DarkSlider
+          label="挠度限值"
+          value={params.deflectionLimitRatio ?? 250}
+          min={100}
+          max={600}
+          step={10}
+          accent="emerald"
+          displayOverride={`L/${params.deflectionLimitRatio ?? 250}`}
+          onChange={(value) => handleChange('deflectionLimitRatio', value)}
+        />
+        <div className="rounded border border-slate-800 bg-slate-950/40 px-2 py-1.5 text-[10px] leading-relaxed text-slate-400">
+          结果面板按各单元长度计算允许挠度 L/n，并与单元内最大局部竖向挠度比较；工程设计仍需结合构件类型、荷载组合和规范条文复核。
+        </div>
+      </CollapsibleSection>
 
       <CollapsibleSection
         title="工况与组合"
         accentClass="text-sky-400"
         subtitle={`当前计算：${activeAnalysis.label} · ${analysisLoads.length} 条荷载`}
-        className="space-y-2 border-t border-slate-800 pt-3"
       >
-        <div className="space-y-2 rounded-lg border border-slate-800 bg-slate-900/60 p-2">
+        <div className="space-y-2">
           <div>
             <label className="mb-1 block text-[10px] font-semibold text-slate-400">分析目标</label>
             <select
@@ -590,7 +752,7 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
           </div>
         </div>
 
-        <div className="rounded-lg border border-slate-800 bg-slate-900/40 p-2">
+        <div className="border-t border-slate-800/70 pt-3">
           <div className="flex items-center justify-between gap-2">
             <button
               onClick={() => setShowCombinationEditor(prev => !prev)}
@@ -614,7 +776,7 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
           {showCombinationEditor && (
           <div className="mt-2 space-y-1.5">
             {loadCombinations.map(combo => (
-              <div key={combo.id} className="rounded-lg border border-slate-800 bg-slate-950/30 p-2">
+              <div key={combo.id} className="rounded-md bg-slate-950/35 p-2">
                 <div className="mb-1.5 flex items-center gap-1">
                   <input
                     value={combo.name}
@@ -657,7 +819,7 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
             <button onClick={onClearLoads} className="text-[10px] text-slate-500 hover:text-red-400 underline">清除当前工况</button>
           </div>
         )}
-        <div className="grid grid-cols-3 gap-1 mb-1">
+        <div className="grid grid-cols-4 gap-1 mb-1">
             <div draggable onDragStart={(e) => handleDragStart(e, 'point')} onClick={() => addManualLoad('point')}
                 className="bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded p-1.5 flex flex-col items-center cursor-grab active:cursor-grabbing transition-colors group">
                 <div className="text-red-400 text-sm font-bold mb-0.5 group-hover:scale-110 transition-transform">↓</div>
@@ -668,14 +830,19 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
                 <div className="text-orange-400 text-sm font-bold mb-0.5 group-hover:scale-110 transition-transform">↺</div>
                 <div className="text-[9px] text-slate-400">力矩</div>
             </div>
-            <div draggable onDragStart={(e) => handleDragStart(e, 'distributed')} onClick={() => addManualLoad('distributed')}
+            <div draggable onDragStart={(e) => handleDragStart(e, 'distributed')} onClick={() => addManualLineLoad('distributed')}
                 className="bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded p-1.5 flex flex-col items-center cursor-grab active:cursor-grabbing transition-colors group">
                 <div className="text-purple-400 text-sm font-bold mb-0.5 flex tracking-tighter group-hover:scale-110 transition-transform">↓↓↓</div>
-                <div className="text-[9px] text-slate-400">分布载</div>
+                <div className="text-[9px] text-slate-400">均布载</div>
+            </div>
+            <div draggable onDragStart={(e) => handleDragStart(e, 'trapezoidal')} onClick={() => addManualLineLoad('trapezoidal')}
+                className="bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded p-1.5 flex flex-col items-center cursor-grab active:cursor-grabbing transition-colors group">
+                <div className="text-fuchsia-400 text-sm font-bold mb-0.5 flex tracking-tighter group-hover:scale-110 transition-transform">↓↘</div>
+                <div className="text-[9px] text-slate-400">梯形载</div>
             </div>
         </div>
         
-        <div className="space-y-1.5 overflow-y-auto pr-1 flex-1 bg-slate-950/30 p-1.5 rounded-lg border border-slate-800/50">
+        <div className="space-y-1.5 overflow-y-auto pr-1 flex-1">
              {activeCaseLoads.length === 0 && (
                  <div className="text-center text-slate-600 text-[10px] py-3 flex flex-col gap-1">
                      <span>暂无荷载</span>
@@ -690,11 +857,13 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
                      <div className="flex justify-between items-center mb-1">
                          <span className={`font-bold text-[9px] px-1 rounded ${
                              load.type === 'point' ? 'bg-red-500/20 text-red-400' : 
-                             load.type === 'moment' ? 'bg-orange-500/20 text-orange-400' : 
+                             load.type === 'moment' ? 'bg-orange-500/20 text-orange-400' :
+                             load.type === 'trapezoidal' ? 'bg-fuchsia-500/20 text-fuchsia-300' :
                              'bg-purple-500/20 text-purple-400'
                          }`}>
                             {load.type === 'point' && 'F'}
                             {load.type === 'distributed' && 'q'}
+                            {load.type === 'trapezoidal' && 'q1-q2'}
                             {load.type === 'moment' && 'M'}
                          </span>
                          <button onClick={() => deleteLoad(load.id)} className="text-slate-500 hover:text-red-400 px-1 font-bold">×</button>
@@ -703,7 +872,7 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
                         <div className="col-span-2 bg-slate-900/50 p-1 rounded border border-slate-800">
                             <div className="flex justify-between mb-0.5">
                                 <label className="text-[8px] text-slate-500">作用对象</label>
-                                {load.type !== 'distributed' && (
+                                {load.type !== 'distributed' && load.type !== 'trapezoidal' && (
                                     <button onClick={() => toggleLoadTarget(load.id, !isElementLoad)} className="text-[8px] text-blue-400 hover:underline">
                                         {isElementLoad ? "→节点" : "→单元"}
                                     </button>
@@ -720,7 +889,7 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
                                     className="w-full bg-transparent text-white text-center focus:outline-none font-mono border-b border-slate-700 focus:border-blue-500 text-[10px]"/>
                             </div>
                         </div>
-                        {isElementLoad && load.type !== 'distributed' && (
+                        {isElementLoad && load.type !== 'distributed' && load.type !== 'trapezoidal' && (
                             <div className="col-span-2 bg-slate-900/50 p-1 rounded border border-slate-800">
                                 <div className="flex justify-between mb-0.5 items-center">
                                     <label className="text-[8px] text-slate-500">位置 (m)</label>
@@ -732,12 +901,19 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
                             </div>
                         )}
                         <div>
-                            <label className="text-[8px] text-slate-500 block">大小 ({load.type === 'moment' ? 'kNm' : load.type === 'distributed' ? 'kN/m' : 'kN'})</label>
+                            <label className="text-[8px] text-slate-500 block">{load.type === 'trapezoidal' ? '起点' : '大小'} ({load.type === 'moment' ? 'kNm' : load.type === 'distributed' || load.type === 'trapezoidal' ? 'kN/m' : 'kN'})</label>
                             <input type="number" step="0.0001" value={load.magnitude} onChange={(e) => updateLoad(load.id, 'magnitude', parseFloat(e.target.value))}
                                 className="w-full bg-slate-900 border border-slate-700 rounded px-1 text-white focus:border-rose-500 outline-none text-[10px]"/>
                         </div>
-                        {load.type !== 'moment' ? (
+                        {load.type === 'trapezoidal' && (
                         <div>
+                            <label className="text-[8px] text-slate-500 block">终点 (kN/m)</label>
+                            <input type="number" step="0.0001" value={load.magnitudeEnd ?? load.magnitude} onChange={(e) => updateLoad(load.id, 'magnitudeEnd', parseFloat(e.target.value))}
+                                className="w-full bg-slate-900 border border-slate-700 rounded px-1 text-white focus:border-rose-500 outline-none text-[10px]"/>
+                        </div>
+                        )}
+                        {load.type !== 'moment' ? (
+                        <div className={load.type === 'trapezoidal' ? 'col-span-2' : ''}>
                             <label className="text-[8px] text-slate-500 block">方向</label>
                             <select value={load.direction} onChange={(e) => updateLoad(load.id, 'direction', e.target.value)}
                                 className="w-full bg-slate-900 border border-slate-700 rounded px-1 text-white focus:border-rose-500 outline-none h-[20px] text-[10px]">
@@ -757,7 +933,6 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
         accentClass="text-cyan-400"
         subtitle="控制模型与结果图层"
         defaultOpen={false}
-        className="space-y-2 border-t border-slate-800 pt-3"
       >
         <div className="grid grid-cols-2 gap-1.5">
           {([
@@ -783,7 +958,7 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
             </button>
           ))}
         </div>
-        <div className="rounded-lg border border-slate-800 bg-slate-950/30 p-2">
+        <div>
           <DarkSlider
             label="结果图幅值"
             value={diagramLayers.diagramScale}
@@ -808,31 +983,34 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
         accentClass={issueSummary.errors > 0 ? 'text-red-400' : issueSummary.warnings > 0 ? 'text-amber-400' : 'text-emerald-400'}
         subtitle={`${issueSummary.errors} 错误 · ${issueSummary.warnings} 警告 · ${issueSummary.infos} 提示`}
         defaultOpen={issueSummary.errors > 0 || issueSummary.warnings > 0}
-        className="space-y-2 border-t border-slate-800 pt-3"
       >
-        <div className="space-y-1.5 rounded-lg border border-slate-800 bg-slate-950/30 p-1.5">
-          {validationIssues.length === 0 ? (
-            <div className="rounded bg-emerald-500/10 px-2 py-1.5 text-[10px] font-semibold text-emerald-300">未发现明显建模问题</div>
-          ) : validationIssues.map(item => (
+        {validationIssues.length === 0 ? (
+          <div className="text-[10px] font-semibold leading-relaxed text-emerald-300">
+            当前工程模型没有明显计算前问题，结果表和反应图状态可继续观察。
+          </div>
+        ) : (
+          <div className="space-y-1.5">
+            {validationIssues.map(item => (
             <div
               key={item.id}
-              className={`rounded border px-2 py-1.5 text-[10px] ${
+              className={`rounded-md px-2 py-1.5 text-[10px] ${
                 item.severity === 'error'
-                  ? 'border-red-500/30 bg-red-500/10 text-red-200'
+                  ? 'bg-red-500/10 text-red-200'
                   : item.severity === 'warning'
-                  ? 'border-amber-500/30 bg-amber-500/10 text-amber-200'
-                  : 'border-sky-500/25 bg-sky-500/10 text-sky-200'
+                  ? 'bg-amber-500/10 text-amber-200'
+                  : 'bg-sky-500/10 text-sky-200'
               }`}
             >
               <div className="font-semibold">{item.title}</div>
               <div className="mt-0.5 text-[9px] opacity-80">{item.detail}</div>
             </div>
-          ))}
-        </div>
+            ))}
+          </div>
+        )}
       </CollapsibleSection>
 
-      <CollapsibleSection title="截面属性" accentClass="text-emerald-400" subtitle="刚度与截面参数" className="space-y-2 border-t border-slate-800 pt-3">
-        <div className="space-y-2 rounded-lg border border-slate-800 bg-slate-950/30 p-2">
+      <CollapsibleSection title="截面属性" accentClass="text-emerald-400" subtitle="刚度与截面参数">
+        <div className="space-y-2">
             <div className="grid grid-cols-1 gap-1.5">
                 <div>
                     <label className="text-[10px] text-slate-300 block mb-0.5">材料库</label>
@@ -852,6 +1030,86 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
             <button onClick={applyPreset} className="w-full rounded bg-emerald-600 px-2 py-1 text-[10px] font-semibold text-white hover:bg-emerald-500">
                 应用到全部单元
             </button>
+        </div>
+        <div className="rounded-lg border border-slate-800 bg-slate-950/35 p-2">
+          <div className="mb-2 flex items-center justify-between gap-2">
+            <div>
+              <div className="text-[10px] font-semibold text-emerald-300">截面计算器</div>
+              <div className="text-[9px] text-slate-500">输入 mm 尺寸，输出 A 与 Ix</div>
+            </div>
+            <select
+              value={sectionShape}
+              onChange={(e) => setSectionShape(e.target.value as SectionShape)}
+              className="rounded border border-slate-700 bg-slate-900 px-1.5 py-1 text-[10px] text-slate-200 outline-none focus:border-emerald-500"
+            >
+              <option value="rectangle">矩形</option>
+              <option value="hSection">H型</option>
+              <option value="pipe">圆管</option>
+            </select>
+          </div>
+
+          {sectionShape === 'rectangle' && (
+            <div className="grid grid-cols-2 gap-1.5">
+              <label className="text-[9px] text-slate-500">
+                宽 b
+                <input type="number" value={sectionDraft.widthMm} onChange={(e) => setSectionDraft(prev => ({ ...prev, widthMm: Number(e.target.value) }))}
+                  className="mt-0.5 w-full rounded border border-slate-800 bg-slate-900 px-1 py-0.5 text-[10px] text-slate-100 outline-none focus:border-emerald-500" />
+              </label>
+              <label className="text-[9px] text-slate-500">
+                高 h
+                <input type="number" value={sectionDraft.heightMm} onChange={(e) => setSectionDraft(prev => ({ ...prev, heightMm: Number(e.target.value) }))}
+                  className="mt-0.5 w-full rounded border border-slate-800 bg-slate-900 px-1 py-0.5 text-[10px] text-slate-100 outline-none focus:border-emerald-500" />
+              </label>
+            </div>
+          )}
+
+          {sectionShape === 'hSection' && (
+            <div className="grid grid-cols-2 gap-1.5">
+              {[
+                ['heightMm', '高 h'],
+                ['widthMm', '翼缘宽 b'],
+                ['webMm', '腹板 tw'],
+                ['flangeMm', '翼缘 tf'],
+              ].map(([key, label]) => (
+                <label key={key} className="text-[9px] text-slate-500">
+                  {label}
+                  <input type="number" value={sectionDraft[key as keyof typeof sectionDraft]} onChange={(e) => setSectionDraft(prev => ({ ...prev, [key]: Number(e.target.value) }))}
+                    className="mt-0.5 w-full rounded border border-slate-800 bg-slate-900 px-1 py-0.5 text-[10px] text-slate-100 outline-none focus:border-emerald-500" />
+                </label>
+              ))}
+            </div>
+          )}
+
+          {sectionShape === 'pipe' && (
+            <div className="grid grid-cols-2 gap-1.5">
+              <label className="text-[9px] text-slate-500">
+                外径 D
+                <input type="number" value={sectionDraft.diameterMm} onChange={(e) => setSectionDraft(prev => ({ ...prev, diameterMm: Number(e.target.value) }))}
+                  className="mt-0.5 w-full rounded border border-slate-800 bg-slate-900 px-1 py-0.5 text-[10px] text-slate-100 outline-none focus:border-emerald-500" />
+              </label>
+              <label className="text-[9px] text-slate-500">
+                壁厚 t
+                <input type="number" value={sectionDraft.thicknessMm} onChange={(e) => setSectionDraft(prev => ({ ...prev, thicknessMm: Number(e.target.value) }))}
+                  className="mt-0.5 w-full rounded border border-slate-800 bg-slate-900 px-1 py-0.5 text-[10px] text-slate-100 outline-none focus:border-emerald-500" />
+              </label>
+            </div>
+          )}
+
+          <div className="mt-2 grid grid-cols-[1fr_auto] items-center gap-2">
+            <div className={`rounded border px-2 py-1 text-[10px] ${calculatedSection ? 'border-emerald-500/25 bg-emerald-500/10 text-emerald-100' : 'border-amber-500/25 bg-amber-500/10 text-amber-100'}`}>
+              {calculatedSection
+                ? `${calculatedSection.name} · A=${calculatedSection.A} cm² · I=${calculatedSection.I}`
+                : '尺寸组合无效'}
+            </div>
+            <button
+              type="button"
+              disabled={!calculatedSection}
+              onClick={applyCalculatedSection}
+              className="rounded bg-emerald-600 px-2 py-1 text-[10px] font-semibold text-white hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              应用
+            </button>
+          </div>
         </div>
         <div>
             <label className="text-[10px] text-slate-300 block mb-0.5">刚度假设</label>
@@ -878,16 +1136,13 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
         accentClass="text-violet-400"
         subtitle="节点与单元编辑器"
         defaultOpen={false}
-        className="space-y-2 border-t border-slate-800 pt-3"
       >
-        <div className="max-h-[560px] overflow-y-auto rounded-xl border border-slate-800 bg-slate-950/40 p-2">
-          <GeometryEditor
-            params={params}
-            setParams={setParams}
-            showHeader={false}
-            className="flex min-h-0 flex-col gap-4 bg-transparent p-0"
-          />
-        </div>
+        <GeometryEditor
+          params={params}
+          setParams={setParams}
+          showHeader={false}
+          className="flex max-h-[560px] min-h-0 flex-col gap-3 overflow-y-auto bg-transparent p-0"
+        />
       </CollapsibleSection>
 
       </div>

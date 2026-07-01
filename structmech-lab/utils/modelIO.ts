@@ -78,6 +78,8 @@ function normalizeImportedParams(params: SolverParams): SolverParams {
 
   return {
     ...cloned,
+    unitSystem: cloned.unitSystem ?? 'metric-kN-m',
+    deflectionLimitRatio: cloned.deflectionLimitRatio ?? 250,
     loadCases: loadCases.length ? loadCases : DEFAULT_LOAD_CASES,
     loadCombinations: loadCombinations.length ? loadCombinations : DEFAULT_LOAD_COMBINATIONS,
     activeLoadCaseId,

@@ -66,6 +66,12 @@ const computeEffectiveProperties = (el: SolverElement, stiffnessType: StiffnessT
     return { effE, effA, effI };
 };
 
+export const getDeflectionCorrectionRigidity = (el: SolverElement, stiffnessType: StiffnessType) => {
+    if (el.releaseStart || el.releaseEnd) return 0;
+    const { effE, effI } = computeEffectiveProperties(el, stiffnessType);
+    return effE * effI;
+};
+
 const buildLocalStiffnessMatrix = (effE: number, effA: number, effI: number, L: number, releaseStart?: boolean, releaseEnd?: boolean): number[][] => {
     const k_local = createMatrix(6, 6);
     const k_axial = effE * effA / L;
@@ -101,22 +107,55 @@ const buildLocalStiffnessMatrix = (effE: number, effA: number, effI: number, L: 
     return k_local;
 };
 
+const getLocalLoadComponents = (load: Load, c: number, s: number) => {
+    let magX = 0;
+    let magY = 0;
+    if (load.type === 'distributed' || load.type === 'trapezoidal' || load.type === 'point') {
+        const dir = load.direction || 'y';
+        if (dir === 'x') {
+            magX = load.magnitude * c;
+            magY = load.magnitude * -s;
+        } else {
+            magX = load.magnitude * s;
+            magY = load.magnitude * c;
+        }
+    }
+    return { magX, magY };
+};
+
+const getLocalLoadComponentPair = (load: Load, c: number, s: number) => {
+    const start = getLocalLoadComponents(load, c, s);
+    if (load.type !== 'trapezoidal') return { start, end: start };
+
+    const endLoad = { ...load, magnitude: load.magnitudeEnd ?? load.magnitude };
+    return { start, end: getLocalLoadComponents(endLoad, c, s) };
+};
+
 const computeFixedEndForces = (load: Load, L: number, c: number, s: number, releaseStart?: boolean, releaseEnd?: boolean): number[] => {
     let m1 = 0, m2 = 0, v1 = 0, v2 = 0, fx1 = 0, fx2 = 0;
     const locParam = load.location !== undefined ? load.location : 0.5;
 
     if (load.type === 'distributed') {
-        const mag = load.magnitude; const dir = load.direction || 'y';
-        const wx = (dir === 'x') ? mag * c : mag * s;
-        const wy = (dir === 'x') ? mag * -s : mag * c;
+        const { magX: wx, magY: wy } = getLocalLoadComponents(load, c, s);
         m1 = -wy * L * L / 12; m2 = wy * L * L / 12;
         v1 = -wy * L / 2; v2 = -wy * L / 2;
         fx1 = -wx * L / 2; fx2 = -wx * L / 2;
+    } else if (load.type === 'trapezoidal') {
+        const { start, end } = getLocalLoadComponentPair(load, c, s);
+        const wx1 = start.magX;
+        const wx2 = end.magX;
+        const wy1 = start.magY;
+        const wy2 = end.magY;
+
+        v1 = -L * (7 * wy1 + 3 * wy2) / 20;
+        v2 = -L * (3 * wy1 + 7 * wy2) / 20;
+        m1 = -L * L * (3 * wy1 + 2 * wy2) / 60;
+        m2 = L * L * (2 * wy1 + 3 * wy2) / 60;
+        fx1 = -L * (7 * wx1 + 3 * wx2) / 20;
+        fx2 = -L * (3 * wx1 + 7 * wx2) / 20;
     } else if (load.type === 'point') {
-        const mag = load.magnitude; const dir = load.direction || 'y';
         const a = locParam * L; const b = L - a;
-        const Px = (dir === 'x') ? mag * c : mag * s;
-        const Py = (dir === 'x') ? mag * -s : mag * c;
+        const { magX: Px, magY: Py } = getLocalLoadComponents(load, c, s);
         m1 = -Py * a * b * b / (L * L); m2 = Py * a * a * b / (L * L);
         v1 = -Py * b * b * (3 * a + b) / (L * L * L); v2 = -Py * a * a * (a + 3 * b) / (L * L * L);
         fx1 = -Px * b / L; fx2 = -Px * a / L;
@@ -136,13 +175,15 @@ const computeFixedEndForces = (load: Load, L: number, c: number, s: number, rele
             m1 += 0.5 * dm2; const dV1 = 1.5 * dm2 / L; v1 += dV1; v2 -= dV1;
         } else {
             if (load.type === 'distributed') {
-                const mag = load.magnitude; const dir = load.direction || 'y';
-                const wy = (dir === 'x') ? mag * -s : mag * c;
+                const { magY: wy } = getLocalLoadComponents(load, c, s);
                 v1 = -wy * L / 2; v2 = -wy * L / 2;
+            } else if (load.type === 'trapezoidal') {
+                const { start, end } = getLocalLoadComponentPair(load, c, s);
+                const totalWy = L * (start.magY + end.magY) / 2;
+                v1 = -totalWy / 2; v2 = -totalWy / 2;
             } else if (load.type === 'point') {
-                const mag = load.magnitude; const dir = load.direction || 'y';
                 const a = locParam * L; const b = L - a;
-                const Py = (dir === 'x') ? mag * -s : mag * c;
+                const { magY: Py } = getLocalLoadComponents(load, c, s);
                 v1 = -Py * b / L; v2 = -Py * a / L;
             } else if (load.type === 'moment') {
                 const M_val = load.magnitude; v1 = -M_val / L; v2 = M_val / L;
@@ -153,6 +194,37 @@ const computeFixedEndForces = (load: Load, L: number, c: number, s: number, rele
     return [fx1, v1, m1, fx2, v2, m2];
 };
 
+const calculateLoadDeflectionCorrection = (
+    x: number,
+    L: number,
+    c: number,
+    s: number,
+    elementLoads: Load[],
+    flexuralRigidity: number,
+): number => {
+    if (flexuralRigidity <= 0) return 0;
+
+    return elementLoads.reduce((sum, load) => {
+        if (load.type === 'distributed') {
+            const { magY } = getLocalLoadComponents(load, c, s);
+            return sum + magY * x * x * (L - x) * (L - x) / (24 * flexuralRigidity);
+        }
+
+        if (load.type === 'point') {
+            const { magY } = getLocalLoadComponents(load, c, s);
+            const a = (load.location !== undefined ? load.location : 0.5) * L;
+            const b = L - a;
+            if (x <= a) {
+                return sum + magY * b * b * x * x * (3 * a * L - (L + 2 * a) * x) / (6 * flexuralRigidity * L * L * L);
+            }
+            const rightDistance = L - x;
+            return sum + magY * a * a * rightDistance * rightDistance * (3 * b * L - (L + 2 * b) * rightDistance) / (6 * flexuralRigidity * L * L * L);
+        }
+
+        return sum;
+    }, 0);
+};
+
 export const calculateExactValues = (
     xInput: number, 
     L: number, 
@@ -160,7 +232,8 @@ export const calculateExactValues = (
     s: number,
     u_local: number[],
     startForces: { fx: number, fy: number, m: number }, 
-    elementLoads: Load[]
+    elementLoads: Load[],
+    flexuralRigidity = 0,
 ) => {
     let x = Math.max(0, Math.min(L, xInput));
     if (x < 1e-4) x = 0;
@@ -173,7 +246,9 @@ export const calculateExactValues = (
     const N3 = 3*xi*xi - 2*xi*xi*xi;
     const N4 = L * (-xi*xi + xi*xi*xi);
     
-    const def = N1*u_local[1] + N2*u_local[2] + N3*u_local[4] + N4*u_local[5];
+    const interpolationDef = N1*u_local[1] + N2*u_local[2] + N3*u_local[4] + N4*u_local[5];
+    const loadDefCorrection = calculateLoadDeflectionCorrection(x, L, c, s, elementLoads, flexuralRigidity);
+    const def = interpolationDef + loadDefCorrection;
 
     let N_x = -startForces.fx;
     let V_x = startForces.fy;
@@ -182,22 +257,19 @@ export const calculateExactValues = (
     elementLoads.forEach(l => {
         const loc = (l.location !== undefined ? l.location : 0.5) * L;
         
-        let magX = 0, magY = 0;
-        if (l.type === 'distributed' || l.type === 'point') {
-            const dir = l.direction || 'y';
-            if (dir === 'x') { 
-                magX = l.magnitude * c; 
-                magY = l.magnitude * -s; 
-            } else { 
-                magX = l.magnitude * s; 
-                magY = l.magnitude * c; 
-            }
-        }
+        const { magX, magY } = getLocalLoadComponents(l, c, s);
 
         if (l.type === 'distributed') {
              N_x -= magX * x;
              V_x += magY * x;
              M_x += magY * x * x / 2;
+        } else if (l.type === 'trapezoidal') {
+             const { start, end } = getLocalLoadComponentPair(l, c, s);
+             const dX = end.magX - start.magX;
+             const dY = end.magY - start.magY;
+             N_x -= start.magX * x + dX * x * x / (2 * L);
+             V_x += start.magY * x + dY * x * x / (2 * L);
+             M_x += start.magY * x * x / 2 + dY * x * x * x / (6 * L);
         } else {
              if (x > loc + 1e-6) { 
                  if (l.type === 'point') {
@@ -238,7 +310,7 @@ export const solveStructure = (nodes: SolverNode[], elements: SolverElement[], l
   const K_global = createMatrix(totalDOF, totalDOF);
   const F_global = createVector(totalDOF);
 
-  elements.forEach(el => {
+    elements.forEach(el => {
     const idx1 = getDofIndex(el.startNode);
     const idx2 = getDofIndex(el.endNode);
     if (idx1 === -1 || idx2 === -1) return;
@@ -277,6 +349,16 @@ export const solveStructure = (nodes: SolverNode[], elements: SolverElement[], l
 
     const map = [idx1, idx1+1, idx1+2, idx2, idx2+1, idx2+2];
     for(let i=0; i<6; i++) for(let j=0; j<6; j++) K_global[map[i]][map[j]] += k_global_el[i][j];
+  });
+
+  nodes.forEach((node) => {
+      const baseIdx = getDofIndex(node.id);
+      if (baseIdx === -1 || !node.springStiffness) return;
+      node.springStiffness.forEach((stiffness, dofOffset) => {
+          if (Number.isFinite(stiffness) && stiffness > 0) {
+              K_global[baseIdx + dofOffset][baseIdx + dofOffset] += stiffness;
+          }
+      });
   });
 
   loads.forEach(load => {
@@ -366,12 +448,15 @@ export const solveStructure = (nodes: SolverNode[], elements: SolverElement[], l
           dy: cleanValue(U[idx + 1]),
           rotation: cleanValue(U[idx + 2])
       });
-      if (node.restraints.some(r => r)) {
+      const springReactions = (node.springStiffness ?? [0, 0, 0]).map((stiffness, offset) => (
+          Number.isFinite(stiffness) && stiffness > 0 ? -stiffness * U[idx + offset] : 0
+      ));
+      if (node.restraints.some(r => r) || springReactions.some(value => Math.abs(value) > 1e-9)) {
           reactions.push({
               nodeId: node.id,
-              fx: cleanValue(node.restraints[0] ? KU[idx] - F_global[idx] : 0),
-              fy: cleanValue(node.restraints[1] ? KU[idx+1] - F_global[idx+1] : 0),
-              m:  cleanValue(node.restraints[2] ? KU[idx+2] - F_global[idx+2] : 0)
+              fx: cleanValue((node.restraints[0] ? KU[idx] - F_global[idx] : 0) + springReactions[0]),
+              fy: cleanValue((node.restraints[1] ? KU[idx+1] - F_global[idx+1] : 0) + springReactions[1]),
+              m:  cleanValue((node.restraints[2] ? KU[idx+2] - F_global[idx+2] : 0) + springReactions[2])
           });
       }
   });
@@ -422,10 +507,10 @@ export const solveStructure = (nodes: SolverNode[], elements: SolverElement[], l
 
       const F_total = f_stiff.map((v, i) => v + fem[i]);
       
-      const startForces = { 
-          fx: cleanValue(F_total[0]), 
-          fy: cleanValue(F_total[1]), 
-          m: cleanValue(F_total[2]) 
+      const startForces = {
+          fx: F_total[0],
+          fy: F_total[1],
+          m: F_total[2]
       };
 
       const plotPoints = [];
@@ -443,9 +528,10 @@ export const solveStructure = (nodes: SolverNode[], elements: SolverElement[], l
       const sortedX = Array.from(criticalX).sort((a,b) => a-b);
 
       let elMaxM = 0, elMaxV = 0, elMaxN = 0;
+      const flexuralRigidity = getDeflectionCorrectionRigidity(el, stiffnessType);
 
       for (const x of sortedX) {
-          const vals = calculateExactValues(x, L, c, s, u_local, startForces, elLoads);
+          const vals = calculateExactValues(x, L, c, s, u_local, startForces, elLoads, flexuralRigidity);
           
           const gx = n1.x + x * c - (vals.deflectionY/1000) * s; 
           const gy = n1.y + x * s + (vals.deflectionY/1000) * c; 
@@ -473,7 +559,11 @@ export const solveStructure = (nodes: SolverNode[], elements: SolverElement[], l
           maxMoment: cleanValue(elMaxM),
           maxShear: cleanValue(elMaxV),
           u_local: u_local,
-          startForces: startForces
+          startForces: {
+              fx: cleanValue(startForces.fx),
+              fy: cleanValue(startForces.fy),
+              m: cleanValue(startForces.m)
+          }
       });
   });
 

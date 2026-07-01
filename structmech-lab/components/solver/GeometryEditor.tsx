@@ -33,6 +33,19 @@ const GeometryEditor: React.FC<GeometryEditorProps> = ({ params, setParams, clas
       setParams(prev => ({ ...prev, nodes: prev.nodes.map(n => n.id !== id ? n : { ...n, [field]: value }) }));
   };
 
+  const updateNodeSpring = (id: number, index: 0 | 1 | 2, value: number) => {
+      switchToCustom();
+      setParams(prev => ({
+          ...prev,
+          nodes: prev.nodes.map(n => {
+              if (n.id !== id) return n;
+              const next: [number, number, number] = [...(n.springStiffness ?? [0, 0, 0])] as [number, number, number];
+              next[index] = Number.isFinite(value) && value > 0 ? value : 0;
+              return { ...n, springStiffness: next };
+          })
+      }));
+  };
+
   const getNodeSupportType = (r: [boolean, boolean, boolean]) => {
       if (r[0] && r[1] && r[2]) return 'Fixed';
       if (!r[0] && r[1] && r[2]) return 'Guided';
@@ -118,15 +131,15 @@ const GeometryEditor: React.FC<GeometryEditorProps> = ({ params, setParams, clas
             </div>
         ) : null}
 
-        <div className="flex-1 min-h-0 flex flex-col">
+        <div className="min-h-0 flex flex-col">
             <div className="flex justify-between items-center mb-1">
             <h4 className="text-[10px] text-slate-300 font-semibold">节点 (Nodes)</h4>
             <button onClick={addNode} className="text-[9px] bg-violet-600 px-1.5 py-0.5 rounded hover:bg-violet-500 text-white transition-colors">+ 添加</button>
             </div>
-            <div className="space-y-1 overflow-y-auto pr-1 flex-1 bg-slate-950/30 p-1.5 rounded-lg border border-slate-800/50">
+            <div className="space-y-1 overflow-y-auto pr-1">
                 {params.nodes.length === 0 && <div className="text-[10px] text-slate-600 text-center py-3">暂无节点</div>}
                 {params.nodes.map(n => (
-                    <div key={n.id} className="bg-slate-800 p-1.5 rounded text-[10px] grid grid-cols-[16px_1fr_1fr_auto] gap-1.5 items-center group">
+                    <div key={n.id} className="rounded-md border border-slate-800/70 bg-slate-950/35 p-1.5 text-[10px] grid grid-cols-[16px_1fr_1fr_auto] gap-1.5 items-center group">
                         <span className="text-slate-500 font-mono font-bold">{n.id}</span>
                         <div className="flex flex-col gap-0.5">
                             <div className="flex items-center gap-0.5">
@@ -151,12 +164,34 @@ const GeometryEditor: React.FC<GeometryEditorProps> = ({ params, setParams, clas
                             </select>
                         </div>
                         <button onClick={() => removeNode(n.id)} className="text-slate-600 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all text-xs">×</button>
+                        <div className="col-span-4 grid grid-cols-3 gap-1 border-t border-slate-800/70 pt-1">
+                            {[
+                                ['kx', 0, 'kN/m'],
+                                ['ky', 1, 'kN/m'],
+                                ['kr', 2, 'kN·m/rad'],
+                            ].map(([label, idx, unit]) => (
+                                <label key={label} className="min-w-0 text-[8px] text-slate-500">
+                                    <span className="flex items-center justify-between gap-1">
+                                        <span>{label}</span>
+                                        <span className="truncate text-[7px] text-slate-600">{unit}</span>
+                                    </span>
+                                    <input
+                                        type="number"
+                                        min="0"
+                                        step={idx === 2 ? '100' : '1000'}
+                                        value={n.springStiffness?.[idx as 0 | 1 | 2] ?? 0}
+                                        onChange={(e) => updateNodeSpring(n.id, idx as 0 | 1 | 2, Number(e.target.value))}
+                                        className="mt-0.5 w-full rounded border border-slate-800 bg-slate-900 px-1 py-0.5 text-center text-[9px] text-white outline-none focus:border-violet-500"
+                                    />
+                                </label>
+                            ))}
+                        </div>
                     </div>
                 ))}
             </div>
         </div>
 
-        <div className="flex-1 min-h-0 flex flex-col border-t border-slate-800 pt-3">
+        <div className="min-h-0 flex flex-col border-t border-slate-800 pt-3">
             <div className="flex justify-between items-center mb-1">
             <h4 className="text-[10px] text-slate-300 font-semibold">单元 (Elements)</h4>
             <div className="flex gap-1">
@@ -165,10 +200,10 @@ const GeometryEditor: React.FC<GeometryEditorProps> = ({ params, setParams, clas
                 <button onClick={addElement} className="text-[9px] bg-violet-600 px-1.5 py-0.5 rounded hover:bg-violet-500 text-white transition-colors">+ 添加</button>
             </div>
             </div>
-            <div className="space-y-1 overflow-y-auto pr-1 flex-1 bg-slate-950/30 p-1.5 rounded-lg border border-slate-800/50">
+            <div className="space-y-1 overflow-y-auto pr-1">
                 {params.elements.length === 0 && <div className="text-[10px] text-slate-600 text-center py-3">暂无单元</div>}
                 {params.elements.map(e => (
-                    <div key={e.id} className="bg-slate-800 p-1.5 rounded text-[10px] grid grid-cols-[16px_1fr_1fr_32px_auto] gap-1 items-center group">
+                    <div key={e.id} className="rounded-md border border-slate-800/70 bg-slate-950/35 p-1.5 text-[10px] grid grid-cols-[16px_1fr_1fr_32px_auto] gap-1 items-center group">
                         <span className="text-slate-500 font-mono font-bold">{e.id}</span>
                         <div>
                             <label className="text-[8px] text-slate-500 block text-center">N1</label>

@@ -1,6 +1,7 @@
 import type { AnalysisResult, AnalysisTargetType, Load, ModelIssue, SolverParams } from '../types';
 import { getResultExtrema } from './resultExtrema';
 import type { EnvelopeRow } from './resultEnvelope';
+import type { ServiceabilityRow } from './serviceabilityChecks';
 
 interface ReportAnalysis {
   type: AnalysisTargetType;
@@ -14,6 +15,7 @@ export interface CalculationReportInput {
   activeAnalysis: ReportAnalysis;
   analysisLoads: Load[];
   envelopeRows: EnvelopeRow[];
+  serviceabilityRows?: ServiceabilityRow[];
   validationIssues: ModelIssue[];
   generatedAt?: Date;
 }
@@ -31,9 +33,23 @@ const targetText = (load: Load) => {
   return '-';
 };
 
+const loadValueText = (load: Load) => {
+  if (load.type === 'trapezoidal') return `${fmt(load.magnitude, 3)} -> ${fmt(load.magnitudeEnd ?? load.magnitude, 3)}`;
+  return fmt(load.magnitude, 3);
+};
+
 const restraintText = (restraints: [boolean, boolean, boolean]) => {
   const labels = ['固定', '固定', '固定'];
   return restraints.map((fixed, index) => fixed ? labels[index] : '自由').join(', ');
+};
+
+const springText = (springStiffness?: [number, number, number]) => {
+  if (!springStiffness?.some(value => Number.isFinite(value) && value > 0)) return '-';
+  return [
+    `kx=${fmt(springStiffness[0] ?? 0, 2)} kN/m`,
+    `ky=${fmt(springStiffness[1] ?? 0, 2)} kN/m`,
+    `kr=${fmt(springStiffness[2] ?? 0, 2)} kN·m/rad`,
+  ].join(', ');
 };
 
 const loadDirectionText = (load: Load) => load.type === 'moment' ? '-' : load.direction ?? '-';
@@ -50,6 +66,15 @@ function envelopeValue(row: EnvelopeRow) {
   return row.key === 'deflection-abs' ? fmt(row.value, 4) : fmt(row.value, 2);
 }
 
+function deflectionLocation(extrema: ReturnType<typeof getResultExtrema>) {
+  const deflection = extrema.deflection;
+  if (!deflection) return '无';
+  if (deflection.elementId !== undefined && deflection.x !== undefined) {
+    return `单元 ${deflection.elementId} · x=${fmt(deflection.x, 2)} m`;
+  }
+  return `节点 ${deflection.nodeId} · ${deflection.component}`;
+}
+
 export function createReportFileName(now = new Date()) {
   const stamp = now.toISOString().slice(0, 19).replace(/[:T]/g, '-');
   return `structlab-report-${stamp}.md`;
@@ -64,6 +89,7 @@ export function createCalculationReport(input: CalculationReportInput) {
     fmt(node.x, 3),
     fmt(node.y, 3),
     restraintText(node.restraints),
+    springText(node.springStiffness),
   ]);
 
   const elementRows = input.params.elements.map(element => [
@@ -78,7 +104,7 @@ export function createCalculationReport(input: CalculationReportInput) {
     load.id,
     load.type,
     targetText(load),
-    fmt(load.magnitude, 3),
+    loadValueText(load),
     loadDirectionText(load),
     load.location !== undefined ? fmt(load.location, 3) : '-',
   ]);
@@ -87,7 +113,7 @@ export function createCalculationReport(input: CalculationReportInput) {
     ['最大弯矩', extrema.moment ? `单元 ${extrema.moment.elementId} · x=${fmt(extrema.moment.x, 2)} m` : '无', extrema.moment ? fmt(extrema.moment.value, 2) : '0.00', 'kN·m'],
     ['最大剪力', extrema.shear ? `单元 ${extrema.shear.elementId} · x=${fmt(extrema.shear.x, 2)} m` : '无', extrema.shear ? fmt(extrema.shear.value, 2) : '0.00', 'kN'],
     ['最大轴力', extrema.axial ? `单元 ${extrema.axial.elementId} · x=${fmt(extrema.axial.x, 2)} m` : '无', extrema.axial ? fmt(extrema.axial.value, 2) : '0.00', 'kN'],
-    ['最大位移', extrema.deflection ? `节点 ${extrema.deflection.nodeId} · ${extrema.deflection.component}` : '无', extrema.deflection ? fmt(extrema.deflection.value, 4) : '0.0000', 'mm'],
+    ['最大位移', deflectionLocation(extrema), extrema.deflection ? fmt(extrema.deflection.value, 4) : '0.0000', 'mm'],
   ];
 
   const reactionRows = input.results.reactions.map(reaction => [
@@ -105,6 +131,16 @@ export function createCalculationReport(input: CalculationReportInput) {
     row.unit,
   ]);
 
+  const serviceabilityRows = (input.serviceabilityRows ?? []).map(row => [
+    row.elementId,
+    fmt(row.lengthM, 3),
+    `L/${row.limitRatio}`,
+    fmt(row.limitMm, 3),
+    fmt(row.deflectionMm, 3),
+    fmt(row.utilization, 3),
+    row.passed ? '通过' : '超限',
+  ]);
+
   const issueRows = input.validationIssues.length
     ? input.validationIssues.map(issue => [issue.severity, issue.title, issue.detail])
     : [['info', '未发现明显建模问题', '模型可计算。']];
@@ -119,6 +155,8 @@ export function createCalculationReport(input: CalculationReportInput) {
     '',
     table(['项目', '数值'], [
       ['结构类型', input.params.structureType],
+      ['单位体系', input.params.unitSystem ?? 'metric-kN-m'],
+      ['挠度限值', `L/${input.params.deflectionLimitRatio ?? 250}`],
       ['刚度假设', input.params.stiffnessType],
       ['节点数', input.params.nodes.length],
       ['单元数', input.params.elements.length],
@@ -130,7 +168,7 @@ export function createCalculationReport(input: CalculationReportInput) {
     '',
     '## 2. 节点',
     '',
-    table(['节点', 'X (m)', 'Y (m)', '约束'], nodeRows),
+    table(['节点', 'X (m)', 'Y (m)', '约束', '弹性支座'], nodeRows),
     '',
     '## 3. 单元',
     '',
@@ -152,7 +190,13 @@ export function createCalculationReport(input: CalculationReportInput) {
     '',
     envelopeRows.length ? table(['包络项', '来源', '位置', '数值', '单位'], envelopeRows) : '暂无包络数据。',
     '',
-    '## 8. 模型校验',
+    '## 8. 挠度限值校核',
+    '',
+    serviceabilityRows.length
+      ? table(['单元', '长度 (m)', '限值', '允许值 (mm)', '计算值 (mm)', '利用率', '状态'], serviceabilityRows)
+      : '暂无挠度限值校核数据。',
+    '',
+    '## 9. 模型校验',
     '',
     table(['级别', '标题', '说明'], issueRows),
     '',

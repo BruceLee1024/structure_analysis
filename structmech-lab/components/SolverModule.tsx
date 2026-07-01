@@ -4,13 +4,17 @@ import ControlPanel from './solver/ControlPanel';
 import StructureVisualizer from './solver/StructureVisualizer';
 import ResultsPanel from './solver/ResultsPanel';
 import AgentPanel from './solver/AgentPanel';
+import SolverDiagnostics from './solver/SolverDiagnostics';
+import SpaceSolverPrototype from './solver/SpaceSolverPrototype';
 import { SolverParams, StructureType, AnalysisResult, Load, DiagramLayerSettings, type ResultSelection } from '../types';
 import { solveStructure } from '../utils/solver';
 import { generateGeometry } from '../utils/geometryGenerator';
 import { DEFAULT_LOAD_CASES, DEFAULT_LOAD_COMBINATIONS, getActiveAnalysis, getActiveLoadCaseId, getAnalysisLoads, getLoadCases, getLoadCombinations, getLoadsForCase } from '../utils/loadCases';
 import { summarizeIssues, validateModel } from '../utils/modelValidation';
-import { getResultExtrema } from '../utils/resultExtrema';
+import { getResultExtrema, getSelectionForExtreme } from '../utils/resultExtrema';
+import { buildSolverDiagnosticSummary } from '../utils/solverDiagnostics';
 import { buildResultEnvelopeRows } from '../utils/resultEnvelope';
+import { buildServiceabilityRows, getWorstServiceabilityRow } from '../utils/serviceabilityChecks';
 import { parseAgentInput } from '../utils/agent/parser';
 import { applyAgentActions, createAgentSnapshot } from '../utils/agent/executor';
 import { explainResultsWithLLM, summarizeResultFacts } from '../utils/agent/explainer';
@@ -23,6 +27,8 @@ import type { AgentAction, AgentSessionState, AgentSnapshot } from '../utils/age
 const createDefaultSolverParams = (): SolverParams => {
   const initialGeom = generateGeometry(StructureType.PortalFrame, 10, 5, 2, 200, 50, 200, 2, 2, 2, 0, 0);
   return {
+    unitSystem: 'metric-kN-m',
+    deflectionLimitRatio: 250,
     structureType: StructureType.PortalFrame,
     stiffnessType: 'Elastic',
     width: 10,
@@ -48,6 +54,7 @@ const createDefaultSolverParams = (): SolverParams => {
 };
 
 const SolverModule: React.FC = () => {
+  const [solverMode, setSolverMode] = useState<'plane' | 'space'>('plane');
   const [agentSnapshots, setAgentSnapshots] = useState<AgentSnapshot[]>([]);
   const [agentSession, setAgentSession] = useState<AgentSessionState>(() => createAgentSession());
   const [modelFileStatus, setModelFileStatus] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
@@ -149,6 +156,19 @@ const SolverModule: React.FC = () => {
   );
   const issueSummary = useMemo(() => summarizeIssues(validationIssues), [validationIssues]);
   const extrema = useMemo(() => getResultExtrema(results), [results]);
+  const momentSelection = useMemo(() => getSelectionForExtreme(extrema, 'moment'), [extrema]);
+  const deflectionSelection = useMemo(() => getSelectionForExtreme(extrema, 'deflection'), [extrema]);
+  const diagnosticSummary = useMemo(
+    () => buildSolverDiagnosticSummary({
+      results,
+      nodes: params.nodes,
+      elements: params.elements,
+      loads: analysisLoads,
+      extrema,
+      issues: validationIssues,
+    }),
+    [results, params.nodes, params.elements, analysisLoads, extrema, validationIssues],
+  );
   const envelopeRows = useMemo(() => {
     if (params.nodes.length < 2 || params.elements.length === 0) return [];
 
@@ -177,6 +197,11 @@ const SolverModule: React.FC = () => {
 
     return buildResultEnvelopeRows(envelopeInputs);
   }, [params]);
+  const serviceabilityRows = useMemo(
+    () => buildServiceabilityRows(results, params.elements, params.nodes, params.deflectionLimitRatio),
+    [results, params.elements, params.nodes, params.deflectionLimitRatio],
+  );
+  const worstServiceability = useMemo(() => getWorstServiceabilityRow(serviceabilityRows), [serviceabilityRows]);
 
   const handleAddLoad = (load: Load) => {
       setParams(prev => ({
@@ -210,6 +235,7 @@ const SolverModule: React.FC = () => {
       activeAnalysis,
       analysisLoads,
       envelopeRows,
+      serviceabilityRows,
       validationIssues,
     });
     const blob = new Blob([report], { type: 'text/markdown;charset=utf-8' });
@@ -284,6 +310,10 @@ const SolverModule: React.FC = () => {
     }
   };
 
+  if (solverMode === 'space') {
+    return <SpaceSolverPrototype onSwitchToPlane={() => setSolverMode('plane')} />;
+  }
+
   return (
     <div className="relative flex h-full w-full overflow-hidden bg-slate-950 text-slate-200 rounded-xl">
       <ControlPanel 
@@ -309,7 +339,30 @@ const SolverModule: React.FC = () => {
           </div>
         )}
         <div className="flex-1 min-h-0 p-4 pb-0 overflow-y-auto">
-            <div className="mb-3 grid grid-cols-2 gap-2 text-[11px] lg:grid-cols-5">
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-800 bg-slate-900/80 px-3 py-2">
+              <div className="min-w-0">
+                <div className="text-[9px] font-semibold uppercase tracking-wider text-slate-500">Solver Mode</div>
+                <div className="truncate text-[11px] font-semibold text-slate-200">平面杆系 · 3 自由度节点</div>
+              </div>
+              <div className="inline-flex rounded-md border border-slate-700 bg-slate-950 p-0.5">
+                <button
+                  type="button"
+                  className="rounded px-3 py-1.5 text-[10px] font-semibold text-white bg-indigo-600"
+                  aria-pressed="true"
+                >
+                  平面
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSolverMode('space')}
+                  className="rounded px-3 py-1.5 text-[10px] font-semibold text-slate-400 transition-colors hover:bg-slate-800 hover:text-cyan-200"
+                  aria-pressed="false"
+                >
+                  空间结构原型
+                </button>
+              </div>
+            </div>
+            <div className="mb-3 grid grid-cols-2 gap-2 text-[11px] lg:grid-cols-6">
               <div className="rounded-lg border border-slate-800 bg-slate-900/80 px-3 py-2">
                 <div className="text-[9px] font-semibold uppercase tracking-wider text-slate-500">Analysis</div>
                 <div className="mt-0.5 truncate font-semibold text-slate-200">{activeAnalysis.label}</div>
@@ -333,7 +386,11 @@ const SolverModule: React.FC = () => {
                   {extrema.deflection ? `${extrema.deflection.value.toFixed(4)} mm` : '0.0000 mm'}
                 </div>
                 <div className="mt-0.5 truncate text-[9px] text-slate-500">
-                  {extrema.deflection ? `N${extrema.deflection.nodeId} · ${extrema.deflection.component}` : '无控制节点'}
+                  {extrema.deflection
+                    ? extrema.deflection.elementId !== undefined && extrema.deflection.x !== undefined
+                      ? `E${extrema.deflection.elementId} · x=${extrema.deflection.x.toFixed(2)}m`
+                      : `N${extrema.deflection.nodeId} · ${extrema.deflection.component}`
+                    : '无控制截面'}
                 </div>
               </div>
               <div className="rounded-lg border border-slate-800 bg-slate-900/80 px-3 py-2">
@@ -342,7 +399,22 @@ const SolverModule: React.FC = () => {
                   {issueSummary.errors} 错误 · {issueSummary.warnings} 警告
                 </div>
               </div>
+              <div className="rounded-lg border border-slate-800 bg-slate-900/80 px-3 py-2">
+                <div className="text-[9px] font-semibold uppercase tracking-wider text-slate-500">Deflection</div>
+                <div className={`mt-0.5 font-mono font-semibold ${worstServiceability?.passed === false ? 'text-amber-300' : 'text-emerald-300'}`}>
+                  {worstServiceability ? `${(worstServiceability.utilization * 100).toFixed(1)}%` : '0.0%'}
+                </div>
+                <div className="mt-0.5 truncate text-[9px] text-slate-500">
+                  {worstServiceability ? `E${worstServiceability.elementId} · L/${worstServiceability.limitRatio}` : '无校核数据'}
+                </div>
+              </div>
             </div>
+            <SolverDiagnostics
+              summary={diagnosticSummary}
+              momentSelection={momentSelection}
+              deflectionSelection={deflectionSelection}
+              onSelectResult={setSelectedResult}
+            />
             <StructureVisualizer 
                 params={params} 
                 nodes={params.nodes} 
@@ -375,6 +447,7 @@ const SolverModule: React.FC = () => {
             selectedResult={selectedResult}
             onSelectResult={setSelectedResult}
             envelopeRows={envelopeRows}
+            serviceabilityRows={serviceabilityRows}
             onActivateAnalysis={handleActivateAnalysis}
         />
       </main>

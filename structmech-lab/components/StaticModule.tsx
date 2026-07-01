@@ -17,8 +17,10 @@ import CollapsiblePanel from './ui/CollapsiblePanel';
 import AIBubble from './ui/AIBubble';
 import LearningMilestone from './ui/LearningMilestone';
 import ProgressBar from './ui/ProgressBar';
+import AIQuiz from './ui/AIQuiz';
 import { useAIEngine } from '../hooks/useAIEngine';
 import { getBeamHints, getFrameHints, getTrussHints, getArchHints, getCompositeHints, type ResultHint } from '../utils/resultHints';
+import { getGeometryQuiz } from '../utils/quizBank';
 
 const findHint = (hints: ResultHint[], label: string) => hints.find(h => h.label === label)?.hint;
 
@@ -241,6 +243,20 @@ const GeometryAnalysis: React.FC = () => {
         { name: '滚动支座', desc: '限制一个方向平动', count: '1约束' },
       ];
 
+  const quizQuestions = useMemo(
+    () => getGeometryQuiz({
+      mode,
+      w: W,
+      rigidBodies,
+      hinges,
+      constraints,
+      joints,
+      members,
+      supportLinks,
+    }),
+    [mode, W, rigidBodies, hinges, constraints, joints, members, supportLinks],
+  );
+
   return (
     <div className="flex flex-col lg:flex-row gap-3 min-h-full p-3">
       <CollapsiblePanel title="参数" icon="🔧" side="left" storageKey="param-panel-geometry">
@@ -370,6 +386,12 @@ const GeometryAnalysis: React.FC = () => {
             </div>
           </div>
         </div>
+
+        <AIQuiz
+          title="几何组成测一测"
+          contextLabel={`${modeTitle} · ${substituted}`}
+          questions={quizQuestions}
+        />
       </div>
 
       <CollapsiblePanel title="AI助手" icon="🤖" side="right" storageKey="ai-panel-geometry">

@@ -18,6 +18,13 @@ export function validateModel(params: SolverParams, activeLoads: Load[], solverE
   const nodeIds = new Set<number>();
   const elementIds = new Set<number>();
 
+  if (
+    params.deflectionLimitRatio !== undefined &&
+    (!Number.isFinite(params.deflectionLimitRatio) || params.deflectionLimitRatio < 50 || params.deflectionLimitRatio > 1000)
+  ) {
+    issues.push(issue('deflection-limit-ratio', 'warning', '挠度限值范围异常', '挠度限值建议采用 L/50 到 L/1000 之间的正数。'));
+  }
+
   if (params.nodes.length < 2) {
     issues.push(issue('node-count', 'error', '节点数量不足', '至少需要 2 个节点才能形成杆系模型。'));
   }
@@ -67,6 +74,15 @@ export function validateModel(params: SolverParams, activeLoads: Load[], solverE
     }
   });
 
+  params.nodes.forEach(node => {
+    node.springStiffness?.forEach((stiffness, index) => {
+      if (!Number.isFinite(stiffness) || stiffness < 0) {
+        const labels = ['水平', '竖向', '转动'];
+        issues.push(issue(`spring-${node.id}-${index}`, 'error', '弹性支座刚度异常', `节点 ${node.id} 的${labels[index]}弹簧刚度必须为非负数。`));
+      }
+    });
+  });
+
   const connectedNodeIds = new Set<number>();
   params.elements.forEach(element => {
     connectedNodeIds.add(element.startNode);
@@ -78,7 +94,11 @@ export function validateModel(params: SolverParams, activeLoads: Load[], solverE
     }
   });
 
-  const constrainedDofs = params.nodes.reduce((sum, node) => sum + node.restraints.filter(Boolean).length, 0);
+  const constrainedDofs = params.nodes.reduce((sum, node) => {
+    const fixedCount = node.restraints.filter(Boolean).length;
+    const springCount = (node.springStiffness ?? []).filter(stiffness => Number.isFinite(stiffness) && stiffness > 0).length;
+    return sum + fixedCount + springCount;
+  }, 0);
   if (constrainedDofs === 0) {
     issues.push(issue('no-restraints', 'error', '没有支座约束', '结构整体没有任何受约束自由度，会形成刚体运动。'));
   } else if (constrainedDofs < 3) {
@@ -99,6 +119,9 @@ export function validateModel(params: SolverParams, activeLoads: Load[], solverE
     }
     if (!Number.isFinite(load.magnitude)) {
       issues.push(issue(`load-mag-${load.id}`, 'error', '荷载数值异常', `荷载 ${load.id} 的大小不是有效数字。`));
+    }
+    if (load.type === 'trapezoidal' && !Number.isFinite(load.magnitudeEnd)) {
+      issues.push(issue(`load-mag-end-${load.id}`, 'error', '梯形荷载末端值异常', `荷载 ${load.id} 的末端大小不是有效数字。`));
     }
     if (load.location !== undefined && (load.location < 0 || load.location > 1)) {
       issues.push(issue(`load-loc-${load.id}`, 'warning', '荷载位置越界', `荷载 ${load.id} 的单元位置应在 0 到 1 之间。`));

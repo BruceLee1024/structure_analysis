@@ -83,6 +83,7 @@ export function getAnalysisLoads(params: SolverParams): Load[] {
       ...load,
       id: `${combo.id}-${load.id}`,
       magnitude: load.magnitude * factor,
+      magnitudeEnd: load.magnitudeEnd !== undefined ? load.magnitudeEnd * factor : load.magnitudeEnd,
       loadCaseId: caseId,
     }];
   });

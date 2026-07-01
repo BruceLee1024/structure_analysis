@@ -35,6 +35,7 @@ export interface SolverNode {
   x: number;
   y: number;
   restraints: [boolean, boolean, boolean];
+  springStiffness?: [number, number, number];
 }
 
 export interface SolverElement {
@@ -53,8 +54,9 @@ export interface Load {
   elementId?: number;
   nodeId?: number;
   loadCaseId?: string;
-  type: 'point' | 'distributed' | 'moment';
+  type: 'point' | 'distributed' | 'trapezoidal' | 'moment';
   magnitude: number;
+  magnitudeEnd?: number;
   direction?: 'x' | 'y';
   location?: number;
 }
@@ -95,7 +97,7 @@ export interface ResultSelection {
   x?: number;
   globalX?: number;
   globalY?: number;
-  component?: 'dx' | 'dy';
+  component?: 'dx' | 'dy' | 'localY';
 }
 
 export type ModelIssueSeverity = 'error' | 'warning' | 'info';
@@ -108,6 +110,8 @@ export interface ModelIssue {
 }
 
 export interface SolverParams {
+  unitSystem?: 'metric-kN-m';
+  deflectionLimitRatio?: number;
   structureType: StructureType;
   stiffnessType: StiffnessType;
   width: number;

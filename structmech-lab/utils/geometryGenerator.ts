@@ -234,6 +234,12 @@ export const autoConnectNodes = (
                 
                 if (l.type === 'distributed') {
                     newLoads.push(lClone);
+                } else if (l.type === 'trapezoidal') {
+                    const startMagnitude = l.magnitude;
+                    const endMagnitude = l.magnitudeEnd ?? l.magnitude;
+                    lClone.magnitude = startMagnitude + (endMagnitude - startMagnitude) * prevT;
+                    lClone.magnitudeEnd = startMagnitude + (endMagnitude - startMagnitude) * currentT;
+                    newLoads.push(lClone);
                 } else {
                     const loc = l.location !== undefined ? l.location : 0.5;
                     if (loc >= prevT - 1e-4 && loc <= currentT + 1e-4) {

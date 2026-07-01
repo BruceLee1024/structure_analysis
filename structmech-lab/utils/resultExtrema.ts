@@ -9,9 +9,13 @@ export interface ElementExtreme {
 }
 
 export interface DisplacementExtreme {
-  nodeId: number;
+  nodeId?: number;
+  elementId?: number;
   value: number;
-  component: 'dx' | 'dy';
+  component: 'dx' | 'dy' | 'localY';
+  x?: number;
+  globalX?: number;
+  globalY?: number;
 }
 
 export interface ResultExtrema {
@@ -57,6 +61,22 @@ function pickDisplacementExtreme(result: AnalysisResult): DisplacementExtreme | 
     });
   });
 
+  result.elements.forEach(element => {
+    element.stations.forEach(station => {
+      const value = station.deflectionY;
+      if (!extreme || Math.abs(value) > Math.abs(extreme.value)) {
+        extreme = {
+          elementId: element.elementId,
+          value,
+          component: 'localY',
+          x: station.x,
+          globalX: station.globalX,
+          globalY: station.globalY,
+        };
+      }
+    });
+  });
+
   return extreme;
 }
 
@@ -87,6 +107,10 @@ export function getSelectionForExtreme(
       kind,
       label: selectionLabels[kind],
       nodeId: deflection.nodeId,
+      elementId: deflection.elementId,
+      x: deflection.x,
+      globalX: deflection.globalX,
+      globalY: deflection.globalY,
       component: deflection.component,
     };
   }

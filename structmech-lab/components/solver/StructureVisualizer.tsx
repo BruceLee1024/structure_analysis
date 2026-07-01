@@ -1,6 +1,6 @@
 import React, { useState, useRef, useMemo, useCallback } from 'react';
-import { SolverParams, AnalysisResult, SolverNode, SolverElement, Load, StructureType, DiagramLayerSettings, type ResultSelection } from '../../types';
-import { calculateExactValues } from '../../utils/solver';
+import { SolverParams, AnalysisResult, SolverNode, SolverElement, Load, StructureType, DiagramLayerSettings, type ResultSelection, type StiffnessType } from '../../types';
+import { calculateExactValues, getDeflectionCorrectionRigidity } from '../../utils/solver';
 
 const VIS_WIDTH = 800;
 const VIS_HEIGHT = 400;
@@ -29,6 +29,7 @@ interface DiagramViewProps {
     onAddLoad: (load: Load) => void;
     maxValues: { m: number, v: number, n: number, d: number };
     structureType: StructureType;
+    stiffnessType: StiffnessType;
     layers: DiagramLayerSettings;
     selectedResult?: ResultSelection | null;
 }
@@ -40,7 +41,7 @@ const formatValue = (val: number) => {
 
 const DiagramView = React.memo(({ 
     mode, title, showLoads, interactive, nodes, elements, results, loads, transform,
-    activeLocation, setActiveLocation, onAddLoad, maxValues, structureType, layers, selectedResult
+    activeLocation, setActiveLocation, onAddLoad, maxValues, structureType, stiffnessType, layers, selectedResult
 }: DiagramViewProps) => {
     const svgRef = useRef<SVGSVGElement>(null);
     const isEditor = mode === 'Editor';
@@ -162,7 +163,7 @@ const DiagramView = React.memo(({
                     </g>
                 );
             }
-            if (load.type === 'distributed' && load.elementId) {
+            if ((load.type === 'distributed' || load.type === 'trapezoidal') && load.elementId) {
                 const el = elements.find(e => e.id === load.elementId);
                 if (!el) return null;
                 const n1 = nodes.find(n => n.id === el.startNode);
@@ -174,17 +175,20 @@ const DiagramView = React.memo(({
                 const dy = p2.y - p1.y;
                 const L = Math.sqrt(dx*dx+dy*dy);
                 const count = Math.max(2, Math.floor(L/20));
-                const isPositive = load.magnitude > 0;
+                const endMagnitude = load.type === 'trapezoidal' ? load.magnitudeEnd ?? load.magnitude : load.magnitude;
                 const arrows = [];
                 for(let k=0; k<=count; k++){
                     const t = k/count;
                     const lx = p1.x+t*dx;
                     const ly = p1.y+t*dy;
-                    const al = 15;
+                    const magnitudeAt = load.magnitude + (endMagnitude - load.magnitude) * t;
+                    const isPositive = magnitudeAt > 0;
+                    const maxMagnitude = Math.max(Math.abs(load.magnitude), Math.abs(endMagnitude), 1);
+                    const al = 6 + 14 * Math.abs(magnitudeAt) / maxMagnitude;
                     let ax1=lx, ay1=ly, ax2=lx, ay2=ly;
                     if(!isX) { if(isPositive){ay1=ly+al; ay2=ly;} else {ay1=ly-al; ay2=ly;} }
                     else { if(isPositive){ax1=lx-al; ax2=lx;} else {ax1=lx+al; ax2=lx;} }
-                    arrows.push(<line key={k} x1={ax1} y1={ay1} x2={ax2} y2={ay2} stroke="#a855f7" strokeWidth="1" markerEnd="url(#arrowhead-load-dist)"/>);
+                    arrows.push(<line key={k} x1={ax1} y1={ay1} x2={ax2} y2={ay2} stroke={load.type === 'trapezoidal' ? '#d946ef' : '#a855f7'} strokeWidth="1" markerEnd="url(#arrowhead-load-dist)"/>);
                 }
                 return <g key={key}>{arrows}</g>;
             }
@@ -340,14 +344,10 @@ const DiagramView = React.memo(({
                 ? (50 * layers.diagramScale) / ((maxValues.d / 1000) * transform.scale)
                 : 0;
 
-            const deformedPoint = (x: number) => {
+            const deformedPoint = (x: number, deflectionY: number) => {
                 const xi = elLen > 1e-9 ? x / elLen : 0;
                 const uAxial = (1 - xi) * res.u_local[0] + xi * res.u_local[3];
-                const nA = 1 - 3 * xi * xi + 2 * xi * xi * xi;
-                const nB = elLen * (xi - 2 * xi * xi + xi * xi * xi);
-                const nC = 3 * xi * xi - 2 * xi * xi * xi;
-                const nD = elLen * (-xi * xi + xi * xi * xi);
-                const vLocal = nA * res.u_local[1] + nB * res.u_local[2] + nC * res.u_local[4] + nD * res.u_local[5];
+                const vLocal = deflectionY / 1000;
                 const dispX = c * uAxial - s * vLocal;
                 const dispY = s * uAxial + c * vLocal;
                 return toPx(
@@ -372,7 +372,7 @@ const DiagramView = React.memo(({
                 if(mode === 'D') { val = -st.deflectionY * dScale; color = "#a855f7"; fillOp = 0; }
 
                 const t = elLen > 0 ? st.x / elLen : 0;
-                const defPoint = mode === 'D' ? deformedPoint(st.x) : null;
+                const defPoint = mode === 'D' ? deformedPoint(st.x, st.deflectionY) : null;
                 const px = defPoint ? defPoint.x : start.x + dx * t + snx * val;
                 const py = defPoint ? defPoint.y : start.y + dy * t + sny * val;
                 
@@ -472,7 +472,8 @@ const DiagramView = React.memo(({
         const s = dy / length;
         const targetLocalX = closestT * length;
         const elLoads = loads.filter(l => l.elementId === closestEl!.id);
-        const exactValues = calculateExactValues(targetLocalX, length, c, s, resultEl.u_local, resultEl.startForces, elLoads);
+        const flexuralRigidity = getDeflectionCorrectionRigidity(closestEl, stiffnessType);
+        const exactValues = calculateExactValues(targetLocalX, length, c, s, resultEl.u_local, resultEl.startForces, elLoads, flexuralRigidity);
 
         return {
             elementId: closestEl.id, t: closestT,
@@ -481,7 +482,7 @@ const DiagramView = React.memo(({
             axial: exactValues.axial, deflectionY: exactValues.deflectionY,
             n1, n2, length
         };
-    }, [activeLocation, results, nodes, elements, loads]);
+    }, [activeLocation, results, nodes, elements, loads, stiffnessType]);
 
     const handleMouseMove = useCallback((e: React.MouseEvent) => {
         if (!interactive || !svgRef.current) return;
@@ -506,7 +507,7 @@ const DiagramView = React.memo(({
     const onDrop = useCallback((e: React.DragEvent) => {
         if(!interactive || !svgRef.current) return;
         e.preventDefault();
-        const type = e.dataTransfer.getData('loadType') as 'point' | 'distributed' | 'moment';
+        const type = e.dataTransfer.getData('loadType') as Load['type'];
         if (!type) return;
 
         const svg = svgRef.current;
@@ -551,6 +552,8 @@ const DiagramView = React.memo(({
         if (closestElement) {
             if (type === 'distributed') {
                 onAddLoad({ id: Date.now().toString(), type: 'distributed', elementId: closestElement.id, magnitude: -5, direction: 'y' });
+            } else if (type === 'trapezoidal') {
+                onAddLoad({ id: Date.now().toString(), type: 'trapezoidal', elementId: closestElement.id, magnitude: 0, magnitudeEnd: -8, direction: 'y' });
             } else {
                 onAddLoad({ id: Date.now().toString(), type, elementId: closestElement.id, location: hitT, magnitude: type === 'point' ? -10 : 10, direction: 'y' });
             }
@@ -683,8 +686,8 @@ const StructureVisualizer: React.FC<StructureVisualizerProps> = ({ params, nodes
   }), [results]);
 
   const viewProps = useMemo(() => ({
-    nodes, elements, results, loads, transform, activeLocation, setActiveLocation, onAddLoad, maxValues, structureType: params.structureType, layers, selectedResult
-  }), [nodes, elements, results, loads, transform, activeLocation, setActiveLocation, onAddLoad, maxValues, params.structureType, layers, selectedResult]);
+    nodes, elements, results, loads, transform, activeLocation, setActiveLocation, onAddLoad, maxValues, structureType: params.structureType, stiffnessType: params.stiffnessType, layers, selectedResult
+  }), [nodes, elements, results, loads, transform, activeLocation, setActiveLocation, onAddLoad, maxValues, params.structureType, params.stiffnessType, layers, selectedResult]);
 
   const resultViews = [
     layers.moment ? { mode: 'M' as const, title: `弯矩图 M_max=${maxValues.m.toFixed(2)} kNm` } : null,

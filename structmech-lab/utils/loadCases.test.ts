@@ -40,4 +40,30 @@ describe('load case helpers', () => {
     expect(loads.map(load => load.magnitude)).toEqual([-12, -28]);
     expect(baseParams.loads.map(load => load.magnitude)).toEqual([-10, -20]);
   });
+
+  test('scales both ends of trapezoidal loads in combinations', () => {
+    const params: SolverParams = {
+      ...baseParams,
+      loads: [
+        {
+          id: 'trap',
+          type: 'trapezoidal',
+          elementId: 1,
+          magnitude: -4,
+          magnitudeEnd: -10,
+          direction: 'y',
+          loadCaseId: 'dead',
+        },
+      ],
+      loadCombinations: [{ id: 'combo', name: 'Combo', factors: { dead: 1.5 } }],
+      activeAnalysisType: 'combination',
+      activeAnalysisId: 'combo',
+    };
+
+    const [load] = getAnalysisLoads(params);
+
+    expect(load.magnitude).toBe(-6);
+    expect(load.magnitudeEnd).toBe(-15);
+    expect(params.loads[0].magnitudeEnd).toBe(-10);
+  });
 });

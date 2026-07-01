@@ -34,7 +34,7 @@ const params: SolverParams = {
 const result: AnalysisResult = {
   maxDeflection: 2.5,
   reactions: [{ nodeId: 1, fx: 0, fy: 25, m: 12 }],
-  displacements: [{ nodeId: 2, dx: 0.01, dy: -2.5, rotation: 0.001 }],
+  displacements: [{ nodeId: 2, dx: 0.01, dy: -1, rotation: 0.001 }],
   elements: [
     {
       elementId: 1,
@@ -71,6 +71,18 @@ describe('report export', () => {
           selection: null,
         },
       ],
+      serviceabilityRows: [
+        {
+          elementId: 1,
+          lengthM: 10,
+          limitRatio: 250,
+          limitMm: 40,
+          deflectionMm: 2.5,
+          utilization: 0.0625,
+          locationM: 5,
+          passed: true,
+        },
+      ],
       validationIssues: [{ id: 'ok', severity: 'info', title: '未发现明显建模问题', detail: '模型可计算。' }],
       generatedAt: new Date('2026-06-29T00:00:00.000Z'),
     });
@@ -80,7 +92,9 @@ describe('report export', () => {
     expect(report).toContain('| 1 | 0.000 | 0.000 | 固定, 固定, 固定 |');
     expect(report).toContain('| q1 | distributed | EL 1 | -5.000 | y |');
     expect(report).toContain('| 最大弯矩 | 单元 1 · x=5.00 m | 31.25 | kN·m |');
+    expect(report).toContain('| 最大位移 | 单元 1 · x=5.00 m | -2.5000 | mm |');
     expect(report).toContain('| 弯矩最大正值 | 恒载 D | 单元 1 · x=5.00 m | 31.25 | kN·m |');
+    expect(report).toContain('| 1 | 10.000 | L/250 | 40.000 | 2.500 | 0.063 | 通过 |');
     expect(report).toContain('| info | 未发现明显建模问题 | 模型可计算。 |');
   });
 

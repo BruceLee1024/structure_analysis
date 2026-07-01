@@ -1,9 +1,11 @@
 import React, { useState, useRef, useCallback, useMemo } from 'react';
 import { AnalysisResult, SolverNode, SolverElement, Load, AnalysisTargetType, type ResultSelection } from '../../types';
 import { getResultExtrema, getSelectionForExtreme, type ResultExtrema } from '../../utils/resultExtrema';
+import { computeEquilibriumResidual } from '../../utils/solverDiagnostics';
 import type { EnvelopeRow } from '../../utils/resultEnvelope';
+import type { ServiceabilityRow } from '../../utils/serviceabilityChecks';
 
-type ResultTab = 'controls' | 'envelope' | 'reactions' | 'elements' | 'displacements' | 'equilibrium';
+type ResultTab = 'controls' | 'envelope' | 'serviceability' | 'reactions' | 'elements' | 'displacements' | 'equilibrium';
 
 interface ResultsPanelProps {
   results: AnalysisResult;
@@ -14,6 +16,7 @@ interface ResultsPanelProps {
   selectedResult?: ResultSelection | null;
   onSelectResult?: (selection: ResultSelection) => void;
   envelopeRows?: EnvelopeRow[];
+  serviceabilityRows?: ServiceabilityRow[];
   onActivateAnalysis?: (target: { type: AnalysisTargetType; id: string }) => void;
 }
 
@@ -30,6 +33,15 @@ const formatDisp = (val: number) => {
 const formatRot = (val: number) => {
     if (Math.abs(val) < 0.0000005) return '0.000000';
     return val.toFixed(6);
+};
+
+const deflectionLocationText = (extrema: ResultExtrema) => {
+  const deflection = extrema.deflection;
+  if (!deflection) return '无';
+  if (deflection.elementId !== undefined && deflection.x !== undefined) {
+    return `单元 ${deflection.elementId} · x=${deflection.x.toFixed(2)} m`;
+  }
+  return `节点 ${deflection.nodeId} · ${deflection.component}`;
 };
 
 const controlRows = (extrema: ResultExtrema) => [
@@ -63,7 +75,7 @@ const controlRows = (extrema: ResultExtrema) => [
   {
     key: 'deflection',
     label: '最大位移',
-    location: extrema.deflection ? `节点 ${extrema.deflection.nodeId} · ${extrema.deflection.component}` : '无',
+    location: deflectionLocationText(extrema),
     value: extrema.deflection ? formatDisp(extrema.deflection.value) : '0.0000',
     unit: 'mm',
     colorClass: 'text-purple-300',
@@ -84,6 +96,7 @@ const ResultsPanel: React.FC<ResultsPanelProps> = ({
   selectedResult,
   onSelectResult,
   envelopeRows = [],
+  serviceabilityRows = [],
   onActivateAnalysis,
 }) => {
   const [isOpen, setIsOpen] = useState(false);
@@ -119,6 +132,7 @@ const ResultsPanel: React.FC<ResultsPanelProps> = ({
   const tabs: { key: ResultTab; label: string; icon: string }[] = [
     { key: 'controls', label: '控制项', icon: '◎' },
     { key: 'envelope', label: '包络', icon: '◇' },
+    { key: 'serviceability', label: '挠度限值', icon: 'L' },
     { key: 'reactions', label: '支座反力', icon: '⬆' },
     { key: 'elements', label: '单元内力', icon: '≡' },
     { key: 'displacements', label: '节点位移', icon: '↔' },
@@ -157,6 +171,11 @@ const ResultsPanel: React.FC<ResultsPanelProps> = ({
       envelopeRows.forEach(row => {
         csv += `${row.label},${row.sourceLabel},${row.location},${row.value ?? ''},${row.unit}\n`;
       });
+    } else if (activeTab === 'serviceability') {
+      csv = '单元,长度(m),限值,允许值(mm),计算值(mm),利用率,状态\n';
+      serviceabilityRows.forEach(row => {
+        csv += `${row.elementId},${row.lengthM.toFixed(3)},L/${row.limitRatio},${row.limitMm.toFixed(3)},${row.deflectionMm.toFixed(3)},${row.utilization.toFixed(3)},${row.passed ? '通过' : '超限'}\n`;
+      });
     }
     if (!csv) return;
     const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
@@ -166,7 +185,7 @@ const ResultsPanel: React.FC<ResultsPanelProps> = ({
     a.download = `${activeTab}_results.csv`;
     a.click();
     URL.revokeObjectURL(url);
-  }, [activeTab, results, elements, extrema]);
+  }, [activeTab, results, elements, extrema, envelopeRows, serviceabilityRows]);
 
   return (
     <div
@@ -259,6 +278,7 @@ const ResultsPanel: React.FC<ResultsPanelProps> = ({
                   onActivateAnalysis={onActivateAnalysis}
                 />
               )}
+              {activeTab === 'serviceability' && <ServiceabilityTable rows={serviceabilityRows} />}
               {activeTab === 'reactions' && <ReactionsTable results={results} />}
               {activeTab === 'elements' && <ElementsTable results={results} nodes={nodes} elements={elements} />}
               {activeTab === 'displacements' && <DisplacementsTable results={results} />}
@@ -418,6 +438,61 @@ const EnvelopeTable: React.FC<{
   );
 };
 
+/* ===== Serviceability Tab ===== */
+const ServiceabilityTable: React.FC<{ rows: ServiceabilityRow[] }> = ({ rows }) => {
+  if (rows.length === 0) {
+    return <div className="text-slate-500 text-xs text-center py-4">暂无挠度限值校核数据</div>;
+  }
+
+  const worst = rows.reduce((current, row) => row.utilization > current.utilization ? row : current, rows[0]);
+
+  return (
+    <div className="space-y-2">
+      <div className={`rounded border px-2 py-1.5 text-[10px] font-semibold ${
+        worst.passed
+          ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-200'
+          : 'border-amber-500/40 bg-amber-500/10 text-amber-200'
+      }`}>
+        控制单元 E{worst.elementId} · 利用率 {(worst.utilization * 100).toFixed(1)}% · {worst.passed ? '满足限值' : '超过限值'}
+      </div>
+      <table className="w-full text-[11px]">
+        <thead>
+          <tr className="text-slate-400 border-b border-slate-700">
+            <th className={thClassLeft}>单元</th>
+            <th className={thClass}>长度 (m)</th>
+            <th className={thClass}>限值</th>
+            <th className={thClass}>允许 (mm)</th>
+            <th className={thClass}>计算 (mm)</th>
+            <th className={thClass}>利用率</th>
+            <th className={thClassCenter}>状态</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map(row => (
+            <tr key={row.elementId} className="border-b border-slate-800/50 hover:bg-slate-800/40 transition-colors">
+              <td className="py-1.5 px-2 font-mono font-bold text-indigo-300">E{row.elementId}</td>
+              <td className="py-1.5 px-2 text-right font-mono text-slate-300">{row.lengthM.toFixed(3)}</td>
+              <td className="py-1.5 px-2 text-right font-mono text-slate-300">L/{row.limitRatio}</td>
+              <td className="py-1.5 px-2 text-right font-mono text-slate-300">{row.limitMm.toFixed(3)}</td>
+              <td className="py-1.5 px-2 text-right font-mono text-purple-300">{row.deflectionMm.toFixed(3)}</td>
+              <td className={`py-1.5 px-2 text-right font-mono font-bold ${row.passed ? 'text-emerald-300' : 'text-amber-300'}`}>
+                {(row.utilization * 100).toFixed(1)}%
+              </td>
+              <td className="py-1.5 px-2 text-center">
+                <span className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${
+                  row.passed ? 'bg-emerald-500/15 text-emerald-300' : 'bg-amber-500/15 text-amber-300'
+                }`}>
+                  {row.passed ? '通过' : '超限'}
+                </span>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+};
+
 /* ===== Reactions Tab ===== */
 const ReactionsTable: React.FC<{ results: AnalysisResult }> = ({ results }) => {
   if (results.reactions.length === 0) {
@@ -557,86 +632,10 @@ const DisplacementsTable: React.FC<{ results: AnalysisResult }> = ({ results }) 
 
 /* ===== Equilibrium Check Tab ===== */
 const EquilibriumCheck: React.FC<{ results: AnalysisResult; nodes: SolverNode[]; loads: Load[]; elements: SolverElement[] }> = ({ results, nodes, loads, elements }) => {
-  const check = useMemo(() => {
-    let extFx = 0, extFy = 0, extM = 0;
-    const refX = 0, refY = 0;
-
-    loads.forEach(load => {
-      if (load.nodeId) {
-        const n = nodes.find(nd => nd.id === load.nodeId);
-        if (!n) return;
-        if (load.type === 'moment') {
-          extM += load.magnitude;
-        } else {
-          const dir = load.direction || 'y';
-          if (dir === 'x') {
-            extFx += load.magnitude;
-            extM += load.magnitude * (n.y - refY);
-          } else {
-            extFy += load.magnitude;
-            extM += -load.magnitude * (n.x - refX);
-          }
-        }
-      } else if (load.elementId) {
-        const el = elements.find(e => e.id === load.elementId);
-        if (!el) return;
-        const n1 = nodes.find(n => n.id === el.startNode);
-        const n2 = nodes.find(n => n.id === el.endNode);
-        if (!n1 || !n2) return;
-
-        if (load.type === 'distributed') {
-          const L = Math.sqrt(Math.pow(n2.x - n1.x, 2) + Math.pow(n2.y - n1.y, 2));
-          const totalForce = load.magnitude * L;
-          const midX = (n1.x + n2.x) / 2;
-          const midY = (n1.y + n2.y) / 2;
-          const dir = load.direction || 'y';
-          if (dir === 'x') {
-            extFx += totalForce;
-            extM += totalForce * (midY - refY);
-          } else {
-            extFy += totalForce;
-            extM += -totalForce * (midX - refX);
-          }
-        } else if (load.type === 'point') {
-          const t = load.location ?? 0.5;
-          const px = n1.x + t * (n2.x - n1.x);
-          const py = n1.y + t * (n2.y - n1.y);
-          const dir = load.direction || 'y';
-          if (dir === 'x') {
-            extFx += load.magnitude;
-            extM += load.magnitude * (py - refY);
-          } else {
-            extFy += load.magnitude;
-            extM += -load.magnitude * (px - refX);
-          }
-        } else if (load.type === 'moment') {
-          extM += load.magnitude;
-        }
-      }
-    });
-
-    let reactFx = 0, reactFy = 0, reactM = 0;
-    results.reactions.forEach(r => {
-      reactFx += r.fx;
-      reactFy += r.fy;
-      reactM += r.m;
-      const n = nodes.find(nd => nd.id === r.nodeId);
-      if (n) {
-        reactM += -r.fx * (n.y - refY) + r.fy * (n.x - refX);
-      }
-    });
-
-    const sumFx = extFx + reactFx;
-    const sumFy = extFy + reactFy;
-    const sumM = extM + reactM;
-
-    const tol = 0.05;
-    const fxOk = Math.abs(sumFx) < tol;
-    const fyOk = Math.abs(sumFy) < tol;
-    const mOk = Math.abs(sumM) < tol;
-
-    return { extFx, extFy, extM, reactFx, reactFy, reactM, sumFx, sumFy, sumM, fxOk, fyOk, mOk, allOk: fxOk && fyOk && mOk };
-  }, [results, nodes, loads, elements]);
+  const check = useMemo(
+    () => computeEquilibriumResidual(results, nodes, loads, elements),
+    [results, nodes, loads, elements],
+  );
 
   const StatusIcon = ({ ok }: { ok: boolean }) => (
     <span className={`inline-flex items-center justify-center w-4 h-4 rounded-full text-[9px] font-bold ${ok ? 'bg-emerald-500/20 text-emerald-400' : 'bg-amber-500/20 text-amber-400'}`}>

@@ -33,4 +33,10 @@ describe('model validation', () => {
     expect(ids).toContain('no-restraints');
     expect(ids).toContain('load-node-load-1');
   });
+
+  test('warns about unreasonable deflection limit ratios', () => {
+    const issues = validateModel({ ...baseParams, deflectionLimitRatio: 2000 }, []);
+
+    expect(issues.map(issue => issue.id)).toContain('deflection-limit-ratio');
+  });
 });

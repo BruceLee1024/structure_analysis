@@ -74,4 +74,46 @@ describe('getResultExtrema', () => {
       component: 'dy',
     });
   });
+
+  test('uses element station deflection when it exceeds nodal displacement', () => {
+    const extrema = getResultExtrema({
+      maxDeflection: 0.4167,
+      reactions: [],
+      displacements: [
+        { nodeId: 1, dx: 0, dy: 0, rotation: 0 },
+        { nodeId: 2, dx: 0, dy: 0, rotation: 0 },
+      ],
+      elements: [
+        {
+          elementId: 1,
+          maxMoment: 10,
+          maxShear: 5,
+          maxAxial: 0,
+          u_local: [],
+          startForces: { fx: 0, fy: 5, m: 0 },
+          stations: [
+            { x: 0, globalX: 0, globalY: 0, moment: 0, shear: 5, axial: 0, deflectionY: 0 },
+            { x: 2, globalX: 2, globalY: -0.0004167, moment: 10, shear: 0, axial: 0, deflectionY: -0.4167 },
+            { x: 4, globalX: 4, globalY: 0, moment: 0, shear: -5, axial: 0, deflectionY: 0 },
+          ],
+        },
+      ],
+    });
+
+    expect(extrema.deflection).toMatchObject({
+      elementId: 1,
+      x: 2,
+      value: -0.4167,
+      globalX: 2,
+      globalY: -0.0004167,
+    });
+    expect(getSelectionForExtreme(extrema, 'deflection')).toMatchObject({
+      kind: 'deflection',
+      label: '最大位移',
+      elementId: 1,
+      x: 2,
+      globalX: 2,
+      globalY: -0.0004167,
+    });
+  });
 });
