@@ -1,5 +1,5 @@
 .home-overview { height:100%; overflow:auto; color:var(--ui-text); }
-.home-overview-inner { max-width:1440px; margin:0 auto; padding:28px clamp(20px,2.5vw,40px) 24px; }
+.home-overview-inner { width:100%; }
 .home-hero { display:grid; grid-template-columns:42% 58%; align-items:center; isolation:isolate; position:relative; min-height:340px; overflow:hidden; border:1px solid #293b4c; border-radius:14px; background:#0b1725; }
 .home-hero-copy { position:relative; z-index:2; padding:34px 0 36px 32px; }
 .home-eyebrow { display:inline-flex; align-items:center; gap:8px; color:#a2bacb; font-size:10px; letter-spacing:1.5px; }
@@ -73,7 +73,6 @@
   .home-workflow li { padding:0 10px; gap:9px; }
 }
 @media (max-width:640px) {
-  .home-overview-inner { padding:16px 16px 24px; }
   .home-hero { grid-template-columns:minmax(0,1fr); }
   .home-hero-copy { padding:26px 24px 14px; }
   .home-hero-copy h2 { font-size:30px; margin-top:17px; }
@@ -99,22 +98,23 @@
 
 /* Cinematic stress-field overview: artwork and motion remain illustrative. */
 .home-overview { background:radial-gradient(ellipse at 80% 0%,#10203755,transparent 55%),#080f1c; }
-.home-overview-inner { padding-top:22px; }
-.home-hero-stress { display:block; min-height:460px; background:#07101e; border-color:#284353; border-radius:16px; box-shadow:0 18px 60px #0003; }
+.home-hero-stress { display:block; min-height:clamp(480px,58vh,680px); background:#07101e; border:0; border-radius:0; box-shadow:none; }
 .home-hero-stress .home-hero-art { position:absolute; inset:0; height:100%; z-index:-2; }
 .home-hero-stress .home-hero-art img { width:100%; height:100%; min-height:0; object-fit:cover; object-position:center; }
 .home-hero-stress .home-hero-art:after { background:linear-gradient(90deg,#07101ef5 0%,#07101edb 25%,#07101e55 47%,transparent 67%),linear-gradient(0deg,#07101ee6,transparent 23%); }
-.home-hero-topline { position:relative; z-index:3; display:flex; align-items:center; justify-content:space-between; padding:20px 28px; color:#8cbbc9; font:9px ui-monospace,monospace; letter-spacing:2px; }
+.home-hero-topline { position:relative; z-index:3; display:flex; align-items:center; justify-content:space-between; padding:24px clamp(24px,6vw,96px); color:#8cbbc9; font:9px ui-monospace,monospace; letter-spacing:2px; }
+.home-brand { display:flex; align-items:center; gap:14px; color:#e4eff7; font:650 20px Inter,"PingFang SC",sans-serif; letter-spacing:-.5px; }
+.home-brand small { padding-left:14px; border-left:1px solid #6ba2b14d; color:#9dbac9; font-size:11px; font-weight:400; letter-spacing:1px; }
 .home-hero-topline button { display:flex; align-items:center; gap:6px; min-height:28px; padding:0 8px; border:1px solid #46677870; border-radius:5px; background:#08142299; font:10px inherit; letter-spacing:0; color:#b3d1dc; }
-.home-hero-stress .home-hero-copy { padding:35px 36px 90px; width:54%; }
+.home-hero-stress .home-hero-copy { padding:clamp(36px,5vh,64px) 0 90px clamp(24px,6vw,96px); width:54%; }
 .home-hero-stress .home-eyebrow { color:#92cbd7; }
 .home-hero-stress .home-eyebrow>span { box-shadow:0 0 12px #6aebff; }
-.home-hero-stress .home-hero-copy h2 { font-size:clamp(30px,3vw,46px); line-height:1.4; font-weight:650; margin:18px 0; letter-spacing:-1.4px; color:#eff8ff; }
+.home-hero-stress .home-hero-copy h2 { font-size:clamp(34px,4.1vw,60px); line-height:1.4; font-weight:650; margin:18px 0; letter-spacing:-1.4px; color:#eff8ff; }
 .home-hero-stress .home-hero-copy h2 em { color:#8ce8f2; text-shadow:0 0 32px #59d8f533; }
 .home-hero-stress .home-hero-copy>p { color:#a8bdcf; font-size:12px; line-height:2; }
 .home-hero-stress .home-primary-action { background:#92eff3; border-color:#b3f6f5; box-shadow:0 0 25px #6debf220; min-height:42px; }
 .home-hero-stress .home-primary-action:hover { box-shadow:0 0 30px #6debf245; background:#c2fbfc; }
-.home-hero-caption { position:absolute; bottom:24px; right:28px; display:flex; align-items:center; gap:14px; flex-wrap:wrap; font-size:10px; color:#b7d3df; }
+.home-hero-caption { position:absolute; bottom:24px; right:clamp(24px,6vw,96px); display:flex; align-items:center; gap:14px; flex-wrap:wrap; font-size:10px; color:#b7d3df; }
 .home-field-label { display:flex; align-items:center; gap:7px; }
 .home-field-label>span { width:5px; height:5px; border-radius:50%; background:#63e7ee; box-shadow:0 0 9px #63e7ee; }
 .home-stress-legend { display:flex; align-items:center; gap:6px; font-size:9px; color:#a1b5c9; }
@@ -137,7 +137,7 @@
 .home-module:hover { background:#1b394650; }
 .home-category-influence .home-module:hover { background:#37304d55; }
 .home-overview button:focus-visible, .home-overview a:focus-visible { outline:2px solid #86e7f2; outline-offset:3px; }
-@media(min-width:1600px) { .home-hero-stress { min-height:500px; } .home-hero-stress .home-hero-copy { padding-top:52px; } }
+@media(min-width:1600px) { .home-hero-stress .home-hero-copy { padding-top:52px; } }
 @media(max-width:1000px) { .home-hero-stress .home-hero-copy { width:65%; padding-left:28px; } .home-hero-stress .home-hero-art img { object-position:60% center; } }
 @media(max-width:640px) {
  .home-hero-stress { min-height:580px; }
@@ -153,8 +153,8 @@
 }
 @media(prefers-reduced-motion:reduce) { .home-particle-field i { animation:none; opacity:.4; } .home-hero-topline button { display:none; } }
 
-/* Learning entry redesign; the existing hero and global navigation retain their styles. */
-.home-learning-zone { margin-top:30px; }
+/* The landing page spans the viewport; learning entries keep comfortable reading gutters. */
+.home-learning-zone { padding:32px clamp(20px,6vw,96px); }
 .home-learning-zone .home-library { margin:0; }
 .home-learning-zone .home-library-heading { margin-bottom:20px; gap:16px; }
 .home-learning-zone .home-library-heading h2 { font-size:21px; line-height:1.45; font-weight:600; letter-spacing:-.5px; }
@@ -210,7 +210,7 @@
 @media(max-width:1200px) { .home-beam-entry { padding:16px; gap:8px; } .home-learning-path { padding:17px; } .home-study-guide { grid-template-columns:minmax(0,1.2fr) minmax(260px,1fr); } }
 @media(max-width:1050px) { .home-learning-paths { grid-template-columns:minmax(0,1fr); gap:16px; } .home-beam-entry { grid-template-columns:minmax(0,1fr) minmax(160px,.7fr); } .home-influence-topics { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:24px; } .home-topic-group+ .home-topic-group { margin:0; padding:0; border:0; } .home-study-guide { grid-template-columns:minmax(0,1fr); gap:22px; } .home-tutor-help { padding:18px 0 0; border-left:0; border-top:1px solid #243548; } }
 @media(max-width:640px) {
-  .home-learning-zone { margin-top:24px; }
+  .home-learning-zone { padding:24px 20px; }
   .home-learning-zone .home-library-heading { display:block; margin-bottom:16px; }
   .home-learning-zone .home-library-heading h2 { font-size:20px; }
   .home-learning-zone .home-library-heading>span { display:inline-flex; margin-top:12px; }

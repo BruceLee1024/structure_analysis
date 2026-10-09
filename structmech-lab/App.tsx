@@ -147,16 +147,17 @@ const App: React.FC = () => {
   const handleInfluenceSubClick = (subId: InfluenceSubModule) => { setActiveInfluenceSub(subId); setInfluenceExpanded(true); setStaticExpanded(false); setActiveModule(ModuleType.INFLUENCE); };
 
   const closeSidebar = () => setSidebarOpen(false);
+  const isHome = activeModule === 'HOME';
   const moduleTitle = activeModule === 'HOME' ? '工作区概览' : activeModule === 'SETTINGS' ? '设置' : activeModule === ModuleType.STATIC ? '静定结构分析' : activeModule === ModuleType.INFLUENCE ? '影响线分析' : '结构求解器';
   const moduleDescription = activeModule === 'HOME' ? '学习、建模与结果分析' : activeModule === 'SETTINGS' ? 'AI 模型设置' : activeModule === ModuleType.STATIC ? staticSubModules.find(item => item.id === activeStaticSub)?.name : activeModule === ModuleType.INFLUENCE ? influenceSubModules.find(item => item.id === activeInfluenceSub)?.name : solverMode === 'space' ? '空间结构 · 三维求解' : '平面结构 · 绘图建模';
 
   return (
     <div className="app-shell">
       {/* Mobile sidebar overlay */}
-      {sidebarOpen && (
+      {!isHome && sidebarOpen && (
         <button type="button" tabIndex={-1} aria-label="关闭导航遮罩" className="navigation-scrim" onClick={closeSidebar} />
       )}
-      <div ref={navigationRef} id="app-navigation" className={`app-sidebar-shell ${sidebarOpen ? 'is-open' : ''}`} role={sidebarOpen ? 'dialog' : undefined} aria-modal={sidebarOpen || undefined} aria-label={sidebarOpen ? '模块导航' : undefined} onKeyDown={(event: React.KeyboardEvent<HTMLDivElement>) => {
+      {!isHome && <div ref={navigationRef} id="app-navigation" className={`app-sidebar-shell ${sidebarOpen ? 'is-open' : ''}`} role={sidebarOpen ? 'dialog' : undefined} aria-modal={sidebarOpen || undefined} aria-label={sidebarOpen ? '模块导航' : undefined} onKeyDown={(event: React.KeyboardEvent<HTMLDivElement>) => {
         if (event.key === 'Escape') { event.preventDefault(); closeSidebar(); }
         if (event.key !== 'Tab' || !sidebarOpen) return;
         const controls = Array.from((event.currentTarget as HTMLDivElement).querySelectorAll<HTMLButtonElement>('button:not([disabled])')).filter(button => button.getClientRects().length > 0);
@@ -185,12 +186,10 @@ const App: React.FC = () => {
           onGoHome={() => { setActiveModule('HOME'); closeSidebar(); }}
           onShowSettings={openSettings}
         />
-      </div>
+      </div>}
 
-      <main className="app-main" inert={sidebarOpen}>
-        {activeModule === 'HOME' ? <div className="overview-navigation">
-          <button ref={navigationTriggerRef} type="button" aria-label="打开导航" aria-controls="app-navigation" aria-expanded={sidebarOpen} onClick={() => setSidebarOpen(true)} className="workspace-menu-button"><Menu size={20} /></button>
-        </div> : <header className="workspace-header">
+      <main className="app-main" inert={!isHome && sidebarOpen}>
+        {!isHome && <header className="workspace-header">
           <div className="workspace-header-left">
             <button ref={navigationTriggerRef} type="button" aria-label="打开导航" aria-controls="app-navigation" aria-expanded={sidebarOpen} onClick={() => setSidebarOpen(true)} className="workspace-menu-button"><Menu size={20} /></button>
             <div className="workspace-module-icon">{activeModule === 'SETTINGS' ? <Settings2 size={18} /> : activeModule === ModuleType.STATIC ? <GitBranch size={18} /> : activeModule === ModuleType.INFLUENCE ? <TrendingUp size={18} /> : <Calculator size={18} />}</div>

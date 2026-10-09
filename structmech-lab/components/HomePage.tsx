@@ -48,7 +48,7 @@ const HomePage: React.FC<HomePageProps> = ({ onNavigate, onOpenSettings }) => {
       <section className={`home-hero home-hero-stress${motionPaused ? ' is-paused' : ''}`} aria-labelledby="overview-hero-title">
         <div className="home-hero-art" aria-hidden="true"><img src={studioArtUrl} alt="" width="1672" height="941" fetchPriority="high" /></div>
         <div className="home-particle-field" aria-hidden="true">{Array.from({ length: 32 }, (_, i) => <i key={i} style={{ '--px': `${32 + (i * 23 % 65)}%`, '--py': `${14 + (i * 37 % 70)}%`, '--delay': `${-(i % 13)}s`, '--duration': `${7 + i % 6}s`, '--size': `${1 + i % 3}px` } as React.CSSProperties} />)}</div>
-        <div className="home-hero-topline"><span>STRUCTLAB / MECHANICS LAB</span><button type="button" onClick={() => setMotionPaused(v => !v)} aria-pressed={motionPaused}>{motionPaused ? <Play size={12} /> : <Pause size={12} />}{motionPaused ? '播放动效' : '暂停动效'}</button></div>
+        <div className="home-hero-topline"><span className="home-brand">StructLab<small>结构力学实验室</small></span><button type="button" onClick={() => setMotionPaused(v => !v)} aria-pressed={motionPaused}>{motionPaused ? <Play size={12} /> : <Pause size={12} />}{motionPaused ? '播放动效' : '暂停动效'}</button></div>
         <div className="home-hero-copy">
           <span className="home-eyebrow"><span />结构力学 · 交互实验室</span>
           <h2 id="overview-hero-title">看见力的轨迹，<br /><em>探索结构之美。</em></h2>

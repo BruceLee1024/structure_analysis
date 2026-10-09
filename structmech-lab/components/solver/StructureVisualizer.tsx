@@ -53,12 +53,46 @@ const formatValue = (val: number) => {
 };
 
 const DiagramView = React.memo(({ 
-    mode, title, showLoads, interactive, nodes, elements, results, loads, transform,
+    mode, title, showLoads, interactive, nodes, elements, results, loads, transform: baseTransform,
     activeLocation, setActiveLocation, onAddLoad, maxValues, structureType, stiffnessType, layers, selectedResult, canvas, flowLoads
 }: DiagramViewProps) => {
     const svgRef = useRef<SVGSVGElement>(null);
+    const plotRef = useRef<HTMLDivElement>(null);
+    const [plotSize, setPlotSize] = useState<{ width: number; height: number } | null>(null);
     const isEditor = mode === 'Editor';
     const isTruss = structureType === StructureType.Truss;
+
+    useEffect(() => {
+        if (isEditor || !plotRef.current) return;
+        const plot = plotRef.current;
+        const measure = () => {
+            const { width, height } = plot.getBoundingClientRect();
+            if (width <= 0 || height <= 0) return;
+            setPlotSize(previous => previous?.width === width && previous.height === height ? previous : { width, height });
+        };
+        measure();
+        const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(measure);
+        observer?.observe(plot);
+        return () => observer?.disconnect();
+    }, [isEditor]);
+
+    // Match SVG units to display pixels so fitting the structure never shrinks its labels.
+    const transform = useMemo(() => {
+        if (isEditor || !plotSize || nodes.length === 0) return baseTransform;
+        const xs = nodes.map(node => node.x), ys = nodes.map(node => node.y);
+        const minX = Math.min(...xs), maxX = Math.max(...xs);
+        const minY = Math.min(...ys), maxY = Math.max(...ys);
+        const margin = 64;
+        return {
+            ...plotSize,
+            cx: (minX + maxX) / 2,
+            cy: (minY + maxY) / 2,
+            scale: Math.min(
+                Math.max(24, plotSize.width - margin * 2) / Math.max(1, maxX - minX),
+                Math.max(24, plotSize.height - margin * 2) / Math.max(1, maxY - minY),
+            ),
+        };
+    }, [isEditor, plotSize, nodes, baseTransform]);
 
     const toPx = useCallback((x: number, y: number) => {
         const { width, height, scale, cx, cy } = transform;
@@ -71,14 +105,14 @@ const DiagramView = React.memo(({
     }, [transform]);
 
     const { mScale, vScale, nScale, dScale } = useMemo(() => {
-        const maxVisSize = 50 * layers.diagramScale;
+        const maxVisSize = (isEditor ? 50 : 36) * layers.diagramScale;
         return {
             mScale: maxValues.m > 1e-6 ? maxVisSize / maxValues.m : 0,
             vScale: maxValues.v > 1e-6 ? maxVisSize / maxValues.v : 0,
             nScale: maxValues.n > 1e-6 ? maxVisSize / maxValues.n : 0,
             dScale: maxValues.d > 1e-6 ? maxVisSize / maxValues.d : 0
         };
-    }, [maxValues, layers.diagramScale]);
+    }, [maxValues, layers.diagramScale, isEditor]);
 
     const structureLayer = useMemo(() => (
         <g>
@@ -330,6 +364,38 @@ const DiagramView = React.memo(({
         if (isEditor) return null;
         const paths: React.ReactNode[] = [];
         const labels: React.ReactNode[] = [];
+        const labelBoxes: { x: number; y: number; width: number; height: number }[] = [];
+        const addLabel = (key: string, point: { x: number; y: number }, value: string, color: string, description: string, dx = 8, dy = -28) => {
+            const width = value.length * 8.4 + 12, height = 24;
+            const offsets = [[dx, dy], [dx, 8], [-width - 8, dy], [-width - 8, 8], [dx, -54], [dx, 34], [-width / 2, -80], [-width / 2, 60]];
+            const candidates = offsets.map(([x, y]) => ({
+                x: Math.max(6, Math.min(transform.width - width - 6, point.x + x)),
+                y: Math.max(6, Math.min(transform.height - height - 6, point.y + y)), width, height,
+            }));
+            const overlap = (box: typeof candidates[number]) => labelBoxes.reduce((sum, other) => sum +
+                Math.max(0, Math.min(box.x + width + 4, other.x + other.width + 4) - Math.max(box.x, other.x)) *
+                Math.max(0, Math.min(box.y + height + 4, other.y + other.height + 4) - Math.max(box.y, other.y)), 0);
+            // Dense joints may exhaust the nearby slots; use a free margin slot and a leader line.
+            if (candidates.every(candidate => overlap(candidate) > 0)) {
+                const freeSlots = [];
+                for (let y = 6; y <= transform.height - height - 6; y += height + 6) {
+                    for (let x = 6; x <= transform.width - width - 6; x += width + 6) {
+                        freeSlots.push({ x, y, width, height });
+                    }
+                }
+                freeSlots.sort((a, b) => Math.hypot(a.x + width / 2 - point.x, a.y + height / 2 - point.y) - Math.hypot(b.x + width / 2 - point.x, b.y + height / 2 - point.y));
+                candidates.push(...freeSlots);
+            }
+            const box = candidates.reduce((best, candidate) => overlap(candidate) < overlap(best) ? candidate : best);
+            labelBoxes.push(box);
+            labels.push(<g key={key} className="solver-result-label" pointerEvents="none">
+                <title>{description}</title>
+                <line x1={point.x} y1={point.y} x2={Math.max(box.x, Math.min(box.x + width, point.x))} y2={Math.max(box.y, Math.min(box.y + height, point.y))} stroke={color} strokeOpacity="0.65" strokeWidth="1" />
+                <circle cx={point.x} cy={point.y} r="2.5" fill={color} />
+                <rect x={box.x} y={box.y} width={width} height={height} rx="4" fill="#0b1220" fillOpacity="0.96" stroke={color} strokeOpacity="0.35" />
+                <text x={box.x + width / 2} y={box.y + 17} fill={color} fontSize="14" fontWeight="600" fontFamily="ui-monospace, monospace" textAnchor="middle">{value}</text>
+            </g>);
+        };
         let deflectionPeak: {
             value: number;
             point: { x: number; y: number };
@@ -356,7 +422,7 @@ const DiagramView = React.memo(({
             const c = elLen > 0 ? worldDx / elLen : 1;
             const s = elLen > 0 ? worldDy / elLen : 0;
             const deflectionMagnifier = maxValues.d > 1e-6
-                ? (50 * layers.diagramScale) / ((maxValues.d / 1000) * transform.scale)
+                ? (36 * layers.diagramScale) / ((maxValues.d / 1000) * transform.scale)
                 : 0;
 
             const deformedPoint = (x: number, deflectionY: number) => {
@@ -413,42 +479,18 @@ const DiagramView = React.memo(({
             paths.push(<path key={`p-${el.id}`} d={path} fill={color} fillOpacity={fillOp} stroke={color} strokeWidth="2" vectorEffect="non-scaling-stroke" />);
 
             if (layers.labels && mode !== 'D' && Math.abs(peakVal) > 0.01) {
-                const unit = mode === 'M' ? 'kNm' : 'kN';
-                const labelOffX = peakTipPx.x < 100 ? 6 : peakTipPx.x > VIS_WIDTH - 100 ? -6 : snx > 0 ? 6 : -6;
-                const labelOffY = sny > 0 ? -4 : 12;
-                const anchor = peakTipPx.x < 100 ? 'start' : peakTipPx.x > VIS_WIDTH - 100 ? 'end' : snx > 0 ? 'start' : 'end';
-                labels.push(
-                    <g key={`lbl-${el.id}`}>
-                        <circle cx={peakTipPx.x} cy={peakTipPx.y} r="2.5" fill={color} />
-                        <text x={peakTipPx.x + labelOffX} y={peakTipPx.y + labelOffY} fill={color} fontSize="9" fontWeight="bold" textAnchor={anchor} stroke="#0f172a" strokeWidth="3" paintOrder="stroke">{peakVal.toFixed(2)} {unit}</text>
-                    </g>
-                );
+                const unit = mode === 'M' ? 'kN·m' : 'kN';
+                const ink = mode === 'M' ? '#93c5fd' : mode === 'V' ? '#fda4af' : '#6ee7b7';
+                addLabel(`lbl-${el.id}`, peakTipPx, formatValue(peakVal), ink, `杆件 E${el.id}：${peakVal.toFixed(2)} ${unit}`, snx > 0 ? 8 : -formatValue(peakVal).length * 8.4 - 20, sny > 0 ? -28 : 8);
             }
         });
 
         if (layers.labels && mode === 'D' && deflectionPeak && Math.abs(deflectionPeak.value) > 0.005) {
-            labels.push(
-                <g key="deflection-global-label">
-                    <circle cx={deflectionPeak.point.x} cy={deflectionPeak.point.y} r="3" fill="#a855f7" stroke="white" strokeWidth="1.5" />
-                    <text
-                        x={deflectionPeak.point.x + (deflectionPeak.point.x > VIS_WIDTH - 120 ? -8 : 8)}
-                        textAnchor={deflectionPeak.point.x > VIS_WIDTH - 120 ? 'end' : 'start'}
-                        y={deflectionPeak.point.y - 8}
-                        fill="#c084fc"
-                        fontSize="10"
-                        fontWeight="bold"
-                        stroke="#0f172a"
-                        strokeWidth="3"
-                        paintOrder="stroke"
-                    >
-                        δmax {deflectionPeak.value.toFixed(2)} mm
-                    </text>
-                </g>
-            );
+            addLabel('deflection-global-label', deflectionPeak.point, deflectionPeak.value.toFixed(4), '#d8b4fe', `最大局部挠度：${deflectionPeak.value.toFixed(4)} mm`);
         }
 
         return <>{paths}{labels}</>;
-    }, [isEditor, mode, results, elements, nodes, toPx, mScale, vScale, nScale, dScale, layers.labels, layers.diagramScale, maxValues.d, transform.scale]);
+    }, [isEditor, mode, results, elements, nodes, toPx, mScale, vScale, nScale, dScale, layers.labels, layers.diagramScale, maxValues.d, transform.scale, transform.width, transform.height]);
 
     const activeData = useMemo(() => {
         if (!activeLocation) return null;
@@ -583,7 +625,7 @@ const DiagramView = React.memo(({
             {!canvas && <div className="px-3 py-2 bg-slate-800 border-b border-slate-700 flex items-center justify-between shrink-0">
                 <span className="text-xs font-bold text-slate-300 uppercase tracking-wider">{title}</span>
             </div>}
-            <div className="flex-1 relative min-h-0 overflow-hidden">
+            <div ref={plotRef} className="flex-1 relative min-h-0 overflow-hidden">
                 <svg ref={svgRef} aria-label={isEditor ? undefined : title} viewBox={`0 0 ${transform.width} ${transform.height}`}
                     className={`w-full h-full block ${interactive ? 'cursor-crosshair' : ''}`}
                     preserveAspectRatio="xMidYMid meet"
