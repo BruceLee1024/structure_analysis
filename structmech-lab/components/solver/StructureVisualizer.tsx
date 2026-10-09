@@ -1,3 +1,4 @@
+import { placeResultLabels, type DiagramObstacle, type DiagramPoint } from '../../utils/resultLabelLayout';
 import { EngineeringSupport } from '../ui/EngineeringFigure';
 import { solverSectionRight } from '../../utils/sectionEquilibrium';
 import { getActiveAnalysis } from '../../utils/loadCases';
@@ -364,37 +365,13 @@ const DiagramView = React.memo(({
         if (isEditor) return null;
         const paths: React.ReactNode[] = [];
         const labels: React.ReactNode[] = [];
-        const labelBoxes: { x: number; y: number; width: number; height: number }[] = [];
-        const addLabel = (key: string, point: { x: number; y: number }, value: string, color: string, description: string, dx = 8, dy = -28) => {
-            const width = value.length * 8.4 + 12, height = 24;
-            const offsets = [[dx, dy], [dx, 8], [-width - 8, dy], [-width - 8, 8], [dx, -54], [dx, 34], [-width / 2, -80], [-width / 2, 60]];
-            const candidates = offsets.map(([x, y]) => ({
-                x: Math.max(6, Math.min(transform.width - width - 6, point.x + x)),
-                y: Math.max(6, Math.min(transform.height - height - 6, point.y + y)), width, height,
-            }));
-            const overlap = (box: typeof candidates[number]) => labelBoxes.reduce((sum, other) => sum +
-                Math.max(0, Math.min(box.x + width + 4, other.x + other.width + 4) - Math.max(box.x, other.x)) *
-                Math.max(0, Math.min(box.y + height + 4, other.y + other.height + 4) - Math.max(box.y, other.y)), 0);
-            // Dense joints may exhaust the nearby slots; use a free margin slot and a leader line.
-            if (candidates.every(candidate => overlap(candidate) > 0)) {
-                const freeSlots = [];
-                for (let y = 6; y <= transform.height - height - 6; y += height + 6) {
-                    for (let x = 6; x <= transform.width - width - 6; x += width + 6) {
-                        freeSlots.push({ x, y, width, height });
-                    }
-                }
-                freeSlots.sort((a, b) => Math.hypot(a.x + width / 2 - point.x, a.y + height / 2 - point.y) - Math.hypot(b.x + width / 2 - point.x, b.y + height / 2 - point.y));
-                candidates.push(...freeSlots);
-            }
-            const box = candidates.reduce((best, candidate) => overlap(candidate) < overlap(best) ? candidate : best);
-            labelBoxes.push(box);
-            labels.push(<g key={key} className="solver-result-label" pointerEvents="none">
-                <title>{description}</title>
-                <line x1={point.x} y1={point.y} x2={Math.max(box.x, Math.min(box.x + width, point.x))} y2={Math.max(box.y, Math.min(box.y + height, point.y))} stroke={color} strokeOpacity="0.65" strokeWidth="1" />
-                <circle cx={point.x} cy={point.y} r="2.5" fill={color} />
-                <rect x={box.x} y={box.y} width={width} height={height} rx="4" fill="#0b1220" fillOpacity="0.96" stroke={color} strokeOpacity="0.35" />
-                <text x={box.x + width / 2} y={box.y + 17} fill={color} fontSize="14" fontWeight="600" fontFamily="ui-monospace, monospace" textAnchor="middle">{value}</text>
-            </g>);
+        const labelRequests: { key: string; point: DiagramPoint; value: string; color: string; description: string }[] = [];
+        const obstacles: DiagramObstacle[] = elements.flatMap(el => {
+            const start = nodes.find(n => n.id === el.startNode), end = nodes.find(n => n.id === el.endNode);
+            return start && end ? [{ points: [toPx(start.x, start.y), toPx(end.x, end.y)] }] : [];
+        });
+        const addLabel = (key: string, point: DiagramPoint, value: string, color: string, description: string) => {
+            labelRequests.push({ key, point, value, color, description });
         };
         let deflectionPeak: {
             value: number;
@@ -442,9 +419,9 @@ const DiagramView = React.memo(({
             let fillOp = 0.4;
 
             let peakVal = 0;
-            let peakPx = { x: 0, y: 0 };
             let peakTipPx = { x: 0, y: 0 };
 
+            const diagramPoints: DiagramPoint[] = [];
             res.stations.forEach((st, i) => {
                 let val = 0;
                 if(mode === 'M') { val = st.moment * mScale; color = "#3b82f6"; } 
@@ -457,6 +434,7 @@ const DiagramView = React.memo(({
                 const px = defPoint ? defPoint.x : start.x + dx * t + snx * val;
                 const py = defPoint ? defPoint.y : start.y + dy * t + sny * val;
                 
+                diagramPoints.push({ x: px, y: py });
                 if (i === 0) path = `M ${px} ${py}`;
                 else path += ` L ${px} ${py}`;
 
@@ -467,7 +445,6 @@ const DiagramView = React.memo(({
                 if(mode === 'D') rawVal = st.deflectionY;
                 if (Math.abs(rawVal) > Math.abs(peakVal)) {
                     peakVal = rawVal;
-                    peakPx = { x: start.x + dx * t, y: start.y + dy * t };
                     peakTipPx = { x: px, y: py };
                 }
                 if (mode === 'D' && Math.abs(rawVal) > Math.abs(deflectionPeak?.value ?? 0)) {
@@ -475,19 +452,35 @@ const DiagramView = React.memo(({
                 }
             });
 
-            if (mode !== 'D') path += ` L ${end.x} ${end.y} L ${start.x} ${start.y} Z`;
-            paths.push(<path key={`p-${el.id}`} d={path} fill={color} fillOpacity={fillOp} stroke={color} strokeWidth="2" vectorEffect="non-scaling-stroke" />);
+            if (mode !== 'D') {
+                path += ` L ${end.x} ${end.y} L ${start.x} ${start.y} Z`;
+                diagramPoints.push(end, start);
+            }
+            obstacles.push({ points: diagramPoints, filled: mode !== 'D' });
+            paths.push(<path key={`p-${el.id}`} className="solver-result-shape" d={path} fill={color} fillOpacity={fillOp} stroke={color} strokeWidth="2" vectorEffect="non-scaling-stroke" />);
 
             if (layers.labels && mode !== 'D' && Math.abs(peakVal) > 0.01) {
                 const unit = mode === 'M' ? 'kN·m' : 'kN';
                 const ink = mode === 'M' ? '#93c5fd' : mode === 'V' ? '#fda4af' : '#6ee7b7';
-                addLabel(`lbl-${el.id}`, peakTipPx, formatValue(peakVal), ink, `杆件 E${el.id}：${peakVal.toFixed(2)} ${unit}`, snx > 0 ? 8 : -formatValue(peakVal).length * 8.4 - 20, sny > 0 ? -28 : 8);
+                addLabel(`lbl-${el.id}`, peakTipPx, formatValue(peakVal), ink, `杆件 E${el.id}：${peakVal.toFixed(2)} ${unit}`);
             }
         });
 
         if (layers.labels && mode === 'D' && deflectionPeak && Math.abs(deflectionPeak.value) > 0.005) {
             addLabel('deflection-global-label', deflectionPeak.point, deflectionPeak.value.toFixed(4), '#d8b4fe', `最大局部挠度：${deflectionPeak.value.toFixed(4)} mm`);
         }
+
+        const boxes = placeResultLabels(labelRequests.map(label => ({ point: label.point, width: label.value.length * 8.4 + 12, height: 24 })), obstacles, transform);
+        labelRequests.forEach(({ key, point, value, color, description }, index) => {
+            const box = boxes[index];
+            labels.push(<g key={key} className="solver-result-label" pointerEvents="none">
+                <title>{description}</title>
+                <line x1={point.x} y1={point.y} x2={Math.max(box.x, Math.min(box.x + box.width, point.x))} y2={Math.max(box.y, Math.min(box.y + box.height, point.y))} stroke={color} strokeOpacity="0.5" strokeWidth="1" />
+                <circle cx={point.x} cy={point.y} r="2.5" fill={color} />
+                <rect x={box.x} y={box.y} width={box.width} height={box.height} rx="4" fill="#0b1220" fillOpacity="0.96" stroke={color} strokeOpacity="0.35" />
+                <text x={box.x + box.width / 2} y={box.y + 17} fill={color} fontSize="14" fontWeight="600" fontFamily="ui-monospace, monospace" textAnchor="middle">{value}</text>
+            </g>);
+        });
 
         return <>{paths}{labels}</>;
     }, [isEditor, mode, results, elements, nodes, toPx, mScale, vScale, nScale, dScale, layers.labels, layers.diagramScale, maxValues.d, transform.scale, transform.width, transform.height]);
