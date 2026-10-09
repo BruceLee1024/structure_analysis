@@ -1,6 +1,17 @@
-import React, { useState, useRef, useMemo, useCallback } from 'react';
+import { EngineeringSupport } from '../ui/EngineeringFigure';
+import { solverSectionRight } from '../../utils/sectionEquilibrium';
+import { getActiveAnalysis } from '../../utils/loadCases';
+import { SectionEquilibrium } from '../ui/EquilibriumInspector';
+import { scaleLoads } from '../../hooks/useQuasiStatic';
+import { solverLoadAngle, globalLoadComponents } from '../../utils/loadDirection';
+import { getLineLoadRange, isValidLineLoadRange } from '../../utils/lineLoads';
+import React, { useState, useRef, useMemo, useCallback, useEffect } from 'react';
+import CanvasModelEditor, { type CanvasInteraction } from './CanvasModelEditor';
+import { getActiveLoadCaseId, getLoadsForCase } from '../../utils/loadCases';
 import { SolverParams, AnalysisResult, SolverNode, SolverElement, Load, StructureType, DiagramLayerSettings, type ResultSelection, type StiffnessType } from '../../types';
 import { calculateExactValues, getDeflectionCorrectionRigidity } from '../../utils/solver';
+import { ForceFlowControls, ForceFlowLayer, ForceFlowScope } from '../ui/ForceFlow';
+import { solverFlowModel } from '../../utils/forceFlowModels';
 
 const VIS_WIDTH = 800;
 const VIS_HEIGHT = 400;
@@ -32,6 +43,8 @@ interface DiagramViewProps {
     stiffnessType: StiffnessType;
     layers: DiagramLayerSettings;
     selectedResult?: ResultSelection | null;
+    canvas?: CanvasInteraction;
+    flowLoads?: Load[];
 }
 
 const formatValue = (val: number) => {
@@ -41,7 +54,7 @@ const formatValue = (val: number) => {
 
 const DiagramView = React.memo(({ 
     mode, title, showLoads, interactive, nodes, elements, results, loads, transform,
-    activeLocation, setActiveLocation, onAddLoad, maxValues, structureType, stiffnessType, layers, selectedResult
+    activeLocation, setActiveLocation, onAddLoad, maxValues, structureType, stiffnessType, layers, selectedResult, canvas, flowLoads
 }: DiagramViewProps) => {
     const svgRef = useRef<SVGSVGElement>(null);
     const isEditor = mode === 'Editor';
@@ -78,8 +91,8 @@ const DiagramView = React.memo(({
                 return (
                     <g key={el.id}>
                         <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} 
-                            stroke={isEditor ? "#64748b" : "#334155"} 
-                            strokeWidth={isEditor ? 3 : 1.5} 
+                            stroke={isEditor ? "#9bb4ce" : "#334155"}
+                            strokeWidth={isEditor ? 1.8 : 1.5} strokeLinecap="round"
                             strokeOpacity={isEditor ? 1 : 0.3} />
                         {isEditor && !isTruss && (
                             <>
@@ -94,25 +107,17 @@ const DiagramView = React.memo(({
                 const p = toPx(n.x, n.y);
                 return (
                     <g key={n.id} transform={`translate(${p.x}, ${p.y})`}>
-                        {n.restraints.some(r=>r) && (
-                            <g>
-                                {n.restraints[0] && n.restraints[1] && n.restraints[2] ? ( 
-                                    /* Fixed: wall + hatching */
-                                    <g><rect x="-10" y="0" width="20" height="4" fill="#94a3b8"/><line x1="-8" y1="4" x2="-12" y2="10" stroke="#64748b"/><line x1="0" y1="4" x2="-4" y2="10" stroke="#64748b"/><line x1="8" y1="4" x2="4" y2="10" stroke="#64748b"/></g>
-                                ) : !n.restraints[0] && n.restraints[1] && n.restraints[2] ? (
-                                    /* Guided: wall + two horizontal rails */
-                                    <g><rect x="-10" y="2" width="20" height="4" fill="#94a3b8"/><line x1="-12" y1="0" x2="-12" y2="10" stroke="#64748b" strokeWidth="2"/><line x1="-12" y1="2" x2="-14" y2="6" stroke="#64748b"/><line x1="-12" y1="6" x2="-14" y2="10" stroke="#64748b"/></g>
-                                ) : n.restraints[0] && n.restraints[1] ? ( 
-                                    /* Pin: triangle */
-                                    <polygon points="0,0 -8,12 8,12" fill="#94a3b8"/>
-                                ) : ( 
-                                    /* Roller: circle + line */
-                                    <g><circle cx="0" cy="5" r="5" fill="#94a3b8"/><line x1="-8" y1="12" x2="8" y2="12" stroke="#64748b" strokeWidth="2"/></g>
-                                )}
-                            </g>
-                        )}
-                        <circle r="4" fill="#cbd5e1" stroke="#0f172a" />
-                        <text x="8" y="-8" fill="#64748b" fontSize="10" fontWeight="bold">{n.id}</text>
+                        {n.restraints.some(Boolean) && (() => {
+                            const [rx,ry,rz]=n.restraints;
+                            const kind=rx&&ry&&rz?'fixed':rx&&ry?'pinned':rz&&(rx||ry)?'guided':rz?'rotation':'roller';
+                            const attached=elements.find(e=>e.startNode===n.id||e.endNode===n.id);
+                            const other=nodes.find(v=>v.id===(attached?.startNode===n.id?attached.endNode:attached?.startNode));
+                            const horizontal=other && Math.abs(other.x-n.x)>Math.abs(other.y-n.y);
+                            const rotation=kind==='fixed'&&horizontal?(other.x>n.x?90:-90):!ry&&rx?-90:0;
+                            return <EngineeringSupport x={0} y={0} kind={kind} rotation={rotation} ink="#9bb4ce" paper="#0f172a"/>;
+                        })()}
+                        <circle r={isTruss ? 3.2 : 2.8} fill={isTruss ? "#0f172a" : "#c6d6e7"} stroke="#9bb4ce" strokeWidth="1.1" />
+                        <text x="8" y="-8" fill="#a9bbce" fontSize="10" fontWeight="500" stroke="#0f172a" strokeWidth="3" paintOrder="stroke">{n.id}</text>
                     </g>
                 )
             })}
@@ -123,7 +128,7 @@ const DiagramView = React.memo(({
         if (!showLoads) return null;
         return loads.map((load, i) => {
             const key = load.id || `load-${i}`;
-            const isX = load.direction === 'x';
+            const vector = globalLoadComponents({ ...load, magnitude: 1 });
             let p = { x: 0, y: 0 };
             let valid = false;
 
@@ -143,14 +148,14 @@ const DiagramView = React.memo(({
                 }
             }
             if (!valid) return null;
+            if ((load.type === 'point' || load.type === 'moment') && Math.abs(load.magnitude) < 1e-8) return <g key={key}><circle cx={p.x} cy={p.y} r="2" fill="#94a3b8"/><text x={p.x+5} y={p.y-8} fill="#94a3b8" fontSize="10">0</text></g>;
 
             if (load.type === 'point') {
-                const isPositive = load.magnitude > 0;
-                let rot = isX ? (isPositive ? -90 : 90) : (isPositive ? 180 : 0);
+                const rot = -solverLoadAngle(load) - 90;
                 return (
                     <g key={key} transform={`translate(${p.x}, ${p.y}) rotate(${rot})`}>
                         <line x1="0" y1="-25" x2="0" y2="-2" stroke="#ef4444" strokeWidth="2" markerEnd="url(#arrowhead-load)" />
-                        <text x="5" y="-25" fill="#ef4444" fontSize="12" fontWeight="bold" transform={`rotate(${-rot})`}>{Math.abs(load.magnitude)}</text>
+                        <text x="5" y="-25" fill="#ef4444" fontSize="12" fontWeight="bold" transform={`rotate(${-rot})`}>{Number(Math.abs(load.magnitude).toFixed(3))}</text>
                     </g>
                 );
             }
@@ -159,7 +164,7 @@ const DiagramView = React.memo(({
                 return (
                     <g key={key} transform={`translate(${p.x}, ${p.y})`}>
                         <path d={isCCW ? "M 12 0 A 12 12 0 1 0 0 -12" : "M 12 0 A 12 12 0 1 1 0 -12"} fill="none" stroke="#f97316" strokeWidth="2" markerEnd="url(#arrowhead-moment)" />
-                        <text x="14" y="-14" fill="#f97316" fontSize="12" fontWeight="bold">{Math.abs(load.magnitude)}</text>
+                        <text x="14" y="-14" fill="#f97316" fontSize="12" fontWeight="bold">{Number(Math.abs(load.magnitude).toFixed(3))}</text>
                     </g>
                 );
             }
@@ -169,8 +174,10 @@ const DiagramView = React.memo(({
                 const n1 = nodes.find(n => n.id === el.startNode);
                 const n2 = nodes.find(n => n.id === el.endNode);
                 if(!n1||!n2) return null;
-                const p1 = toPx(n1.x, n1.y);
-                const p2 = toPx(n2.x, n2.y);
+                if (!isValidLineLoadRange(load)) return null;
+                const range = getLineLoadRange(load);
+                const p1 = toPx(n1.x + (n2.x - n1.x) * range.start, n1.y + (n2.y - n1.y) * range.start);
+                const p2 = toPx(n1.x + (n2.x - n1.x) * range.end, n1.y + (n2.y - n1.y) * range.end);
                 const dx = p2.x - p1.x;
                 const dy = p2.y - p1.y;
                 const L = Math.sqrt(dx*dx+dy*dy);
@@ -182,15 +189,23 @@ const DiagramView = React.memo(({
                     const lx = p1.x+t*dx;
                     const ly = p1.y+t*dy;
                     const magnitudeAt = load.magnitude + (endMagnitude - load.magnitude) * t;
-                    const isPositive = magnitudeAt > 0;
+                    const sign = Math.sign(magnitudeAt);
                     const maxMagnitude = Math.max(Math.abs(load.magnitude), Math.abs(endMagnitude), 1);
                     const al = 6 + 14 * Math.abs(magnitudeAt) / maxMagnitude;
-                    let ax1=lx, ay1=ly, ax2=lx, ay2=ly;
-                    if(!isX) { if(isPositive){ay1=ly+al; ay2=ly;} else {ay1=ly-al; ay2=ly;} }
-                    else { if(isPositive){ax1=lx-al; ax2=lx;} else {ax1=lx+al; ax2=lx;} }
+                    const ax1 = lx - vector.x * sign * al, ay1 = ly + vector.y * sign * al, ax2 = lx, ay2 = ly;
+                    if (!sign) continue;
                     arrows.push(<line key={k} x1={ax1} y1={ay1} x2={ax2} y2={ay2} stroke={load.type === 'trapezoidal' ? '#d946ef' : '#a855f7'} strokeWidth="1" markerEnd="url(#arrowhead-load-dist)"/>);
                 }
-                return <g key={key}>{arrows}</g>;
+                const color = load.type === 'trapezoidal' ? '#d946ef' : '#a855f7';
+                const offset = (magnitude: number) => (magnitude > 0 ? 1 : -1) * (6 + 14 * Math.abs(magnitude) / Math.max(Math.abs(load.magnitude), Math.abs(endMagnitude), 1));
+                return <g key={key} data-load-id={load.id}>
+                    {arrows}
+                    <line x1={p1.x - vector.x * offset(load.magnitude)} y1={p1.y + vector.y * offset(load.magnitude)}
+                        x2={p2.x - vector.x * offset(endMagnitude)} y2={p2.y + vector.y * offset(endMagnitude)} stroke={color} strokeWidth="1" />
+                    <text x={(p1.x + p2.x) / 2 - vector.x * 26} y={(p1.y + p2.y) / 2 + vector.y * 26 - 5} fill={color} fontSize="10" textAnchor="middle">
+                        {load.type === 'trapezoidal' ? `${Number(Math.abs(load.magnitude).toFixed(3))}～${Math.abs(endMagnitude)}` : Math.abs(load.magnitude)} kN/m
+                    </text>
+                </g>;
             }
             return null;
         });
@@ -399,9 +414,9 @@ const DiagramView = React.memo(({
 
             if (layers.labels && mode !== 'D' && Math.abs(peakVal) > 0.01) {
                 const unit = mode === 'M' ? 'kNm' : 'kN';
-                const labelOffX = snx > 0 ? 6 : -6;
+                const labelOffX = peakTipPx.x < 100 ? 6 : peakTipPx.x > VIS_WIDTH - 100 ? -6 : snx > 0 ? 6 : -6;
                 const labelOffY = sny > 0 ? -4 : 12;
-                const anchor = snx > 0 ? 'start' : 'end';
+                const anchor = peakTipPx.x < 100 ? 'start' : peakTipPx.x > VIS_WIDTH - 100 ? 'end' : snx > 0 ? 'start' : 'end';
                 labels.push(
                     <g key={`lbl-${el.id}`}>
                         <circle cx={peakTipPx.x} cy={peakTipPx.y} r="2.5" fill={color} />
@@ -416,7 +431,8 @@ const DiagramView = React.memo(({
                 <g key="deflection-global-label">
                     <circle cx={deflectionPeak.point.x} cy={deflectionPeak.point.y} r="3" fill="#a855f7" stroke="white" strokeWidth="1.5" />
                     <text
-                        x={deflectionPeak.point.x + 8}
+                        x={deflectionPeak.point.x + (deflectionPeak.point.x > VIS_WIDTH - 120 ? -8 : 8)}
+                        textAnchor={deflectionPeak.point.x > VIS_WIDTH - 120 ? 'end' : 'start'}
                         y={deflectionPeak.point.y - 8}
                         fill="#c084fc"
                         fontSize="10"
@@ -485,18 +501,20 @@ const DiagramView = React.memo(({
     }, [activeLocation, results, nodes, elements, loads, stiffnessType]);
 
     const handleMouseMove = useCallback((e: React.MouseEvent) => {
-        if (!interactive || !svgRef.current) return;
-        const svg = svgRef.current;
-        const pt = svg.createSVGPoint();
-        pt.x = e.clientX; pt.y = e.clientY;
-        const svgP = pt.matrixTransform(svg.getScreenCTM()?.inverse());
-        setActiveLocation(toWorld(svgP.x, svgP.y));
-    }, [interactive, toWorld, setActiveLocation]);
+        // Dragging already updates the canvas per frame; suspend linked hover probes.
+        if (!svgRef.current || (canvas && e.buttons !== 0)) return;
+        const rect = svgRef.current.getBoundingClientRect();
+        const ratio = Math.min(rect.width / transform.width, rect.height / transform.height);
+        if (!ratio) return;
+        setActiveLocation(toWorld(
+            (e.clientX - rect.left - (rect.width - transform.width * ratio) / 2) / ratio,
+            (e.clientY - rect.top - (rect.height - transform.height * ratio) / 2) / ratio,
+        ));
+    }, [transform, toWorld, setActiveLocation, canvas]);
 
     const handleMouseLeave = useCallback(() => {
-        if (!interactive) return;
         setActiveLocation(null);
-    }, [interactive, setActiveLocation]);
+    }, [setActiveLocation]);
 
     const onDragOver = useCallback((e: React.DragEvent) => {
         if(!interactive) return;
@@ -562,22 +580,22 @@ const DiagramView = React.memo(({
 
     return (
         <div className="w-full h-full flex flex-col bg-slate-900 group">
-            <div className="px-3 py-2 bg-slate-800 border-b border-slate-700 flex items-center justify-between shrink-0">
+            {!canvas && <div className="px-3 py-2 bg-slate-800 border-b border-slate-700 flex items-center justify-between shrink-0">
                 <span className="text-xs font-bold text-slate-300 uppercase tracking-wider">{title}</span>
-            </div>
+            </div>}
             <div className="flex-1 relative min-h-0 overflow-hidden">
-                <svg ref={svgRef} viewBox={`0 0 ${transform.width} ${transform.height}`}
+                <svg ref={svgRef} aria-label={isEditor ? undefined : title} viewBox={`0 0 ${transform.width} ${transform.height}`}
                     className={`w-full h-full block ${interactive ? 'cursor-crosshair' : ''}`}
                     preserveAspectRatio="xMidYMid meet"
                     onMouseMove={handleMouseMove} onMouseLeave={handleMouseLeave}
-                    onDragOver={onDragOver} onDrop={onDrop}>
+                    onDragOver={onDragOver} onDrop={onDrop} {...canvas?.svgProps}>
                     <defs>
                         <marker id="arrowhead-load" markerWidth="10" markerHeight="10" refX="5" refY="5" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#ef4444" /></marker>
                         <marker id="arrowhead-moment" markerWidth="6" markerHeight="6" refX="3" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 z" fill="#f97316" /></marker>
                         <marker id="arrowhead-load-dist" markerWidth="6" markerHeight="6" refX="3" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 z" fill="#a855f7" /></marker>
                         <marker id="arrowhead-reaction" markerWidth="8" markerHeight="8" refX="4" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#22d3ee" /></marker>
                     </defs>
-                    {layers.grid && (
+                    {!canvas && layers.grid && (
                         <>
                             <pattern id={`grid-${mode}`} width="40" height="40" patternUnits="userSpaceOnUse">
                                 <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#1e293b" strokeWidth="1"/>
@@ -585,11 +603,14 @@ const DiagramView = React.memo(({
                             <rect width="100%" height="100%" fill={`url(#grid-${mode})`} />
                         </>
                     )}
+                    {canvas?.background}
                     {structureLayer}
-                    {reactionsLayer}
+                    {isEditor && !canvas?.previewNodes && <ForceFlowLayer model={solverFlowModel(nodes, elements, flowLoads ?? loads, results, toPx)} />}
+                    {!canvas?.previewNodes && reactionsLayer}
                     {loadsLayer}
                     {resultsLayer}
                     {selectionLayer}
+                    {canvas?.overlay}
                     {activeData && (() => {
                         const px = toPx(activeData.globalX, activeData.globalY);
                         let val = 0;
@@ -615,14 +636,14 @@ const DiagramView = React.memo(({
                         if (ty < 20) ty = tipY + 20;
 
                         return (
-                            <g>
+                            <g data-linked-section={activeData.elementId} pointerEvents={canvas ? "none" : undefined}>
                                 {!isEditor && Math.abs(val) > 1 && <line x1={px.x} y1={px.y} x2={tipX} y2={tipY} stroke="white" strokeDasharray="3 3" strokeOpacity="0.6" />}
                                 <circle cx={px.x} cy={px.y} r={isEditor ? "5" : "3"} fill={isEditor ? "#fbbf24" : "white"} fillOpacity={isEditor ? "1" : "0.8"} stroke={isEditor ? "white" : "none"} strokeWidth={isEditor ? "2" : "0"} />
                                 {!isEditor && <circle cx={tipX} cy={tipY} r="5" fill="#fbbf24" stroke="white" strokeWidth="2"/>}
-                                {isEditor && (
+                                {isEditor && !canvas && (
                                     <g transform={`translate(${tx}, ${ty})`}>
                                         <rect x="0" y="0" width="160" height="110" rx="8" fill="#0f172a" stroke="#fbbf24" strokeWidth="1.5" className="shadow-2xl opacity-95" />
-                                        <text x="10" y="20" fill="#fbbf24" fontSize="11" fontWeight="bold" letterSpacing="0.5">STRUCTURAL DATA</text>
+                                        <text x="10" y="20" fill="#fbbf24" fontSize="11" fontWeight="bold" letterSpacing="0.5">截面内力</text>
                                         <line x1="10" y1="28" x2="150" y2="28" stroke="#334155" strokeWidth="1" />
                                         <g transform="translate(10, 45)">
                                             <text fill="#94a3b8" fontSize="11" fontWeight="bold">M:</text>
@@ -646,7 +667,11 @@ const DiagramView = React.memo(({
 });
 
 interface StructureVisualizerProps {
+  loadFactor?: number;
+  referenceResult?: AnalysisResult | null;
+  view?: 'analysis' | 'hidden';
   params: SolverParams;
+  setParams: React.Dispatch<React.SetStateAction<SolverParams>>;
   nodes: SolverNode[];
   elements: SolverElement[];
   results: AnalysisResult;
@@ -656,8 +681,10 @@ interface StructureVisualizerProps {
   selectedResult?: ResultSelection | null;
 }
 
-const StructureVisualizer: React.FC<StructureVisualizerProps> = ({ params, nodes, elements, results, loads, onAddLoad, layers, selectedResult }) => {
+const StructureVisualizer: React.FC<StructureVisualizerProps> = ({ referenceResult, loadFactor = 1, view = 'analysis', params, setParams, nodes, elements, results, loads, onAddLoad, layers, selectedResult }) => {
   const [activeLocation, setActiveLocation] = useState<{x: number, y: number} | null>(null);
+  const [focusedDiagram, setFocusedDiagram] = useState<'all' | 'M' | 'V' | 'N' | 'D'>('all');
+  useEffect(() => { if (selectedResult) setFocusedDiagram('all'); }, [selectedResult]);
 
   const transform = useMemo(() => {
       const xVals = nodes.map(n => n.x);
@@ -685,33 +712,57 @@ const StructureVisualizer: React.FC<StructureVisualizerProps> = ({ params, nodes
       d: results.maxDeflection
   }), [results]);
 
+  const referenceMaxValues = useMemo(() => referenceResult ? { m: Math.max(0,...referenceResult.elements.map(e=>e.maxMoment)), v:Math.max(0,...referenceResult.elements.map(e=>e.maxShear)), n:Math.max(0,...referenceResult.elements.map(e=>e.maxAxial)), d:referenceResult.maxDeflection } : maxValues,[referenceResult,maxValues]);
   const viewProps = useMemo(() => ({
-    nodes, elements, results, loads, transform, activeLocation, setActiveLocation, onAddLoad, maxValues, structureType: params.structureType, stiffnessType: params.stiffnessType, layers, selectedResult
-  }), [nodes, elements, results, loads, transform, activeLocation, setActiveLocation, onAddLoad, maxValues, params.structureType, params.stiffnessType, layers, selectedResult]);
+    nodes, elements, results, loads, flowLoads: loads, transform, activeLocation, setActiveLocation, onAddLoad, maxValues: referenceMaxValues, structureType: params.structureType, stiffnessType: params.stiffnessType, layers, selectedResult
+  }), [nodes, elements, results, loads, transform, activeLocation, setActiveLocation, onAddLoad, referenceMaxValues, params.structureType, params.stiffnessType, layers, selectedResult]);
 
   const resultViews = [
-    layers.moment ? { mode: 'M' as const, title: `弯矩图 M_max=${maxValues.m.toFixed(2)} kNm` } : null,
-    layers.shear ? { mode: 'V' as const, title: `剪力图 V_max=${maxValues.v.toFixed(2)} kN` } : null,
-    layers.axial ? { mode: 'N' as const, title: `轴力图 N_max=${maxValues.n.toFixed(2)} kN` } : null,
-    layers.deflection ? { mode: 'D' as const, title: `变形图 δ_max=${maxValues.d.toFixed(4)} mm · ${layers.diagramScale.toFixed(2)}x` } : null,
+    layers.moment ? { mode: 'M' as const, title: `弯矩 M · ${maxValues.m.toFixed(2)} kN·m` } : null,
+    layers.shear ? { mode: 'V' as const, title: `剪力 V · ${maxValues.v.toFixed(2)} kN` } : null,
+    layers.axial ? { mode: 'N' as const, title: `轴力 N · ${maxValues.n.toFixed(2)} kN` } : null,
+    layers.deflection ? { mode: 'D' as const, title: `变形 δ · ${maxValues.d.toFixed(4)} mm` } : null,
   ].filter(Boolean) as { mode: 'M' | 'V' | 'N' | 'D'; title: string }[];
 
+  // A single params/results pair drives the editor and every result figure.
+  const visibleViews = focusedDiagram === 'all' ? resultViews : resultViews.filter(item => item.mode === focusedDiagram);
+
   return (
-      <div className="flex h-full w-full flex-col gap-2">
-          <div className="flex-1 min-h-0 rounded-xl border border-slate-700 overflow-hidden shadow-sm relative">
-              <DiagramView mode="Editor" title="结构模型 (Structure Model)" showLoads={layers.loads} interactive {...viewProps} />
-          </div>
-          <div className={`flex-1 min-h-0 grid gap-2 ${resultViews.length <= 1 ? 'grid-cols-1' : 'grid-cols-2'} ${resultViews.length > 2 ? 'grid-rows-2' : 'grid-rows-1'}`}>
-              {resultViews.length === 0 ? (
-                <div className="rounded-xl border border-slate-700 bg-slate-900 flex items-center justify-center text-xs text-slate-500">
-                  已隐藏全部结果图层
-                </div>
-              ) : resultViews.map(view => (
-                <div key={view.mode} className="rounded-xl border border-slate-700 overflow-hidden shadow-sm relative">
-                  <DiagramView mode={view.mode} title={view.title} {...viewProps} />
+      <div id="workspace-analysis" hidden={view === 'hidden'} role="tabpanel" aria-labelledby="workspace-tab-analysis" className={view === 'hidden' ? 'hidden' : 'solver-linked-workspace'}>
+          <section aria-label="结构建模" className="solver-model-column">
+            <div className="solver-column-heading"><h2>结构模型</h2><details className="solver-display-popover"><summary>光效与加载</summary><div className="solver-display-popover-body"><ForceFlowControls compact /></div></details></div>
+            <div className="solver-model-content">
+              {getActiveAnalysis(params).type === 'combination' ? <div className="flex min-h-0 flex-1 flex-col"><p className="px-3 py-2 text-xs text-slate-400">组合工况预览 · 切回单工况编辑荷载</p><DiagramView mode="Editor" title="组合荷载 · 当前加载比例" showLoads={layers.loads} {...viewProps}/></div> : <CanvasModelEditor params={params} onChange={setParams} showLoads={layers.loads} showGrid={layers.grid} renderCanvas={canvas => (
+                  <DiagramView mode="Editor" title="结构模型 · 点击与拖动绘制" showLoads={layers.loads} interactive {...viewProps}
+                      nodes={canvas.previewNodes ?? nodes} loads={scaleLoads(getLoadsForCase(params.loads, getActiveLoadCaseId(params)),loadFactor)} transform={canvas.viewport} canvas={canvas} />
+              )} />}
+            </div>
+          </section>
+          <section aria-label="内力与变形图" className="solver-result-column">
+            <div className="solver-column-heading solver-results-heading"><h2>内力与变形</h2><span className={results.error ? 'text-amber-300' : 'text-cyan-300'}>{elements.length === 0 ? '等待建模' : results.error ? '检查模型约束' : '与模型联动'}</span>
+            <div className="solver-diagram-filter" role="group" aria-label="显示结果图">
+              {([{ mode: 'all', label: '全部' }, { mode: 'M', label: '弯矩 M' }, { mode: 'V', label: '剪力 V' }, { mode: 'N', label: '轴力 N' }, { mode: 'D', label: '变形 δ' }] as const).map(item => (
+                <button key={item.mode} type="button" aria-pressed={focusedDiagram === item.mode} disabled={elements.length === 0} onClick={() => setFocusedDiagram(item.mode)}>{item.label}</button>
+              ))}
+            </div>
+            </div>
+            <div className={`solver-linked-diagrams ${visibleViews.length <= 1 || elements.length === 0 ? 'is-single' : ''}`}>
+              {elements.length === 0 ? (
+                <div className="solver-diagram-empty solver-diagram-waiting"><strong>建立模型后显示计算结果</strong><span>画杆件 → 放支座 → 加荷载</span><p>内力与变形图会随模型自动更新。</p></div>
+              ) : visibleViews.length === 0 ? (
+                <div className="solver-diagram-empty">{focusedDiagram === 'all' ? '已隐藏全部结果图层' : '此结果图层已隐藏，请在模型配置中开启。'}</div>
+              ) : visibleViews.map(item => (
+                <div key={item.mode} className="solver-linked-diagram" data-diagram-mode={item.mode}>
+                  <DiagramView mode={item.mode} title={item.title} {...viewProps} />
                 </div>
               ))}
-          </div>
+            </div>
+            {!results.error && results.elements.length > 0 && <div className="solver-equilibrium-panel"><SectionEquilibrium defaultOpen={false} members={results.elements.flatMap(solved => {
+              const el=elements.find(e=>e.id===solved.elementId), a=nodes.find(n=>n.id===el?.startNode), b=nodes.find(n=>n.id===el?.endNode);
+              if(!el||!a||!b)return [];
+              return [{ id:String(el.id),label:`杆件 E${el.id}`,length:Math.hypot(b.x-a.x,b.y-a.y),at:(t:number)=>solverSectionRight(el,a,b,solved,loads,t) }];
+            })} /></div>}
+          </section>
       </div>
   );
 };

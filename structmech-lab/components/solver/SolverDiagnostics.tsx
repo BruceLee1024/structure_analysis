@@ -109,7 +109,7 @@ const SolverDiagnostics: React.FC<SolverDiagnosticsProps> = ({
     <DiagnosticCard
       title="平衡残差"
       value={summary.equilibriumText}
-      detail={`ΣFx ${summary.equilibrium.sumFx.toFixed(3)} · ΣFy ${summary.equilibrium.sumFy.toFixed(3)} · ΣM ${summary.equilibrium.sumM.toFixed(3)}`}
+      detail={`ΣFx ${summary.equilibrium.sumFx.toFixed(3)} kN · ΣFy ${summary.equilibrium.sumFy.toFixed(3)} kN · ΣM ${summary.equilibrium.sumM.toFixed(3)} kN·m`}
       icon={<Scale className="h-3 w-3" />}
       className={summary.equilibrium.allOk ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-200' : 'border-amber-500/35 bg-amber-500/10 text-amber-200'}
     />

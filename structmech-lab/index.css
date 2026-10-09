@@ -1,5 +1,6 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
 @import "tailwindcss";
+@import "./workspace-theme.css";
 @config "./tailwind.config.js";
 
 body {
@@ -48,3 +49,246 @@ body {
 .animation-delay-400 { animation-delay: 400ms; }
 .animation-delay-1000 { animation-delay: 1000ms; }
 .animate-scale-in { animation: scale-in 0.3s ease-out forwards; }
+
+/* Solver workspace: model and result figures share one live analysis. */
+.solver-workbench { container-type: inline-size; }
+.workbench-action {
+  display: inline-flex; align-items: center; gap: .45rem;
+  padding: .5rem .65rem; border-radius: .375rem;
+  font-size: .75rem; color: #94a3b8; transition: color .15s, background .15s;
+}
+.workbench-action[aria-expanded="true"] { background: #164e632e; color: #a5f3fc; }
+.workbench-action:hover { background: #1e293b; color: #e2e8f0; }
+.workbench-config, .workbench-assistant {
+  position: absolute; top: 0; bottom: 0; z-index: 20;
+  display: flex; flex-direction: column; min-height: 0;
+  width: min(320px, 100%); background: #020617;
+  box-shadow: 0 12px 32px #0008;
+}
+.workbench-config { left: 0; border-right: 1px solid #1e293b; }
+.workbench-assistant { right: 0; width: min(368px, 100%); border-left: 1px solid #1e293b; }
+@container (min-width: 1200px) {
+  .workbench-config, .workbench-assistant { position: static; flex-shrink: 0; box-shadow: none; }
+}
+.canvas-editor { container-type: inline-size; }
+.canvas-editor-body { display: flex; flex-direction: column; flex: 1; min-height: 360px; }
+.canvas-editor-surface { flex: 1; min-width: 0; min-height: 320px; }
+.canvas-inspector { flex-shrink: 0; max-height: 320px; overflow: auto; border-top: 1px solid #334155; }
+@container (max-width: 799px) {
+  .canvas-editor-body.has-selection { flex: none; min-height: 0; }
+  .canvas-editor-body.has-selection .canvas-editor-surface { flex: none; height: 320px; }
+}
+@container (min-width: 800px) {
+  .canvas-editor-body { min-height: 0; flex-direction: row; }
+  .canvas-editor-surface { min-height: 0; }
+  .canvas-inspector { width: 240px; max-height: none; border-top: 0; border-left: 1px solid #334155; }
+}
+.result-diagrams { height: 100%; min-height: 0; overflow: auto; }
+.result-diagrams > div { min-height: 240px; }
+@container (max-width: 700px) {
+  .result-diagrams { grid-template-columns: minmax(0, 1fr); grid-auto-rows: 300px; }
+}
+.solver-workbench :focus-visible { outline: 2px solid #22d3ee; outline-offset: 2px; }
+.solver-workbench ::-webkit-scrollbar { width: 6px; height: 6px; }
+.solver-workbench ::-webkit-scrollbar-thumb { background: #334155; border-radius: 6px; }
+
+
+/* Linked modeling and analysis stage. Narrow screens keep both sections on one page. */
+.solver-stage { container: solver-stage / inline-size; }
+.solver-linked-workspace {
+  display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px;
+  height: 100%; min-height: 0; overflow: auto; align-content: start;
+}
+.solver-model-column, .solver-result-column {
+  display: flex; flex-direction: column; min-width: 0; min-height: 0;
+  border: 1px solid #243247; border-radius: 10px; overflow: hidden; background: #0f172a;
+}
+.solver-model-column { height: 540px; }
+.solver-result-column { height: 660px; }
+.solver-column-heading {
+  display: flex; flex-shrink: 0; align-items: center; justify-content: space-between;
+  gap: 12px; min-height: 40px; padding: 10px 12px; border-bottom: 1px solid #243247;
+}
+.solver-column-heading h2 { font-size: 12px; font-weight: 600; color: #dbe5f2; }
+.solver-column-heading span { font-size: 10px; color: #8fa2b9; }
+.solver-model-content { flex: 1; min-height: 0; overflow: hidden; }
+.solver-model-content .canvas-editor { border: 0; border-radius: 0; }
+.solver-diagram-filter {
+  display: flex; flex-shrink: 0; flex-wrap: wrap; gap: 4px; padding: 8px 10px;
+  border-bottom: 1px solid #243247;
+}
+.solver-diagram-filter button {
+  padding: 5px 8px; border: 1px solid transparent; border-radius: 5px;
+  font-size: 10px; color: #94a3b8; cursor: pointer; transition: color .15s, background .15s;
+}
+.solver-diagram-filter button:hover { color: #e2e8f0; background: #1e293b; }
+.solver-diagram-filter button[aria-pressed="true"] { color: #a5f3fc; background: #164e633b; border-color: #245166; }
+.solver-linked-diagrams {
+  flex: 1; min-height: 0; display: grid; gap: 8px; padding: 10px; overflow: auto;
+  grid-template-columns: repeat(2, minmax(0, 1fr)); grid-auto-rows: minmax(180px, 1fr);
+}
+.solver-linked-diagrams.is-single { grid-template-columns: minmax(0, 1fr); }
+.solver-linked-diagram { min-width: 0; min-height: 180px; border: 1px solid #243247; border-radius: 7px; overflow: hidden; }
+.solver-linked-diagram > div > div:first-child { background: #131e31; padding: 8px 10px; border-color: #243247; }
+.solver-linked-diagram > div > div:first-child span { font-size: 10px; font-weight: 500; letter-spacing: 0; text-transform: none; overflow-wrap: anywhere; }
+.solver-diagram-empty { grid-column: 1 / -1; display: flex; align-items: center; justify-content: center; color: #94a3b8; font-size: 12px; padding: 24px; }
+@container solver-stage (min-width: 900px) {
+  .solver-linked-workspace { grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr); align-content: stretch; overflow: hidden; }
+  .solver-model-column, .solver-result-column { height: 100%; }
+}
+@container solver-stage (max-width: 480px) {
+  .solver-linked-diagrams { grid-template-columns: minmax(0, 1fr); }
+  .solver-result-column { height: 1000px; }
+}
+
+.solver-model-content .canvas-editor-body { flex: 1; min-height: 0; }
+.solver-model-content .canvas-editor-surface { flex: 1; min-height: 200px; }
+.solver-model-content .canvas-editor-body.has-selection .canvas-editor-surface { flex: 1; height: auto; min-height: 200px; }
+.solver-model-content .canvas-inspector { max-height: 200px; }
+
+
+/* Compact canvas controls, with geometry tools separated from view controls. */
+.canvas-draw-toolbar, .canvas-view-toolbar, .canvas-settings-row, .canvas-tool-options {
+  display: flex; flex-shrink: 0; align-items: center; flex-wrap: wrap;
+  gap: 8px; padding: 7px 10px; border-bottom: 1px solid #243247;
+  font-size: 11px; color: #a0aec2;
+}
+.canvas-draw-toolbar { justify-content: space-between; gap: 6px; }
+.canvas-tool-group, .canvas-insert-group, .canvas-view-group { display: flex; align-items: center; gap: 3px; }
+.canvas-tool-group { padding: 2px; background: #091323; border: 1px solid #243247; border-radius: 6px; }
+.canvas-tool-group button { display: inline-flex; align-items: center; gap: 5px; padding: 6px 7px; border-radius: 4px; color: #a0aec2; cursor: pointer; }
+.canvas-tool-group button:hover { color: #e2e8f0; background: #1e293b; }
+.canvas-tool-group button[aria-pressed="true"] { color: #a5f3fc; background: #164e6352; }
+.canvas-insert-group select { min-width: 72px; max-width: 132px; padding: 7px 4px; background: #0f172a; color: #a0aec2; border-radius: 4px; }
+.canvas-insert-group select.is-active { color: #a5f3fc; background: #164e633b; }
+.canvas-view-toolbar { gap: 8px; padding-top: 5px; padding-bottom: 5px; background: #0c1524; }
+.canvas-view-group + .canvas-view-group { padding-left: 8px; border-left: 1px solid #243247; }
+.canvas-view-group button { padding: 6px; border-color: transparent; background: transparent; }
+.canvas-new-model { margin-left: auto; display: inline-flex; align-items: center; gap: 5px; padding: 6px 8px; border: 1px solid #2c3e55; border-radius: 5px; color: #b6c5d6; cursor: pointer; }
+.canvas-new-model:hover { background: #1e293b; color: #e2e8f0; }
+.canvas-settings-row { gap: 12px; }
+.canvas-settings-row label, .canvas-tool-options label { display: inline-flex; align-items: center; gap: 5px; }
+.canvas-edit-case { margin-right: auto; color: #8ca0b8; font-size: 10px; }
+.canvas-settings-row select, .canvas-tool-options input[type="number"], .canvas-tool-options select { width: 72px; padding: 5px 6px; font-size: 11px; }
+.canvas-tool-options { background: #0b1828; gap: 10px; }
+.canvas-tool-options select { width: 88px; }
+.canvas-complete-member { padding: 5px 7px; color: #a5f3fc; border: 1px solid #245166; border-radius: 4px; background: #164e633b; cursor: pointer; }
+.canvas-statusbar { flex-shrink: 0; border-top: 1px solid #243247; padding: 8px 10px; background: #0c1524; font-size: 10px; color: #91a4bb; }
+.canvas-statusbar > div { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 12px; }
+.canvas-coordinate { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.canvas-shortcut-hint { display: block; margin-top: 5px; color: #72869f; font-size: 9px; line-height: 1.6; }
+.solver-diagram-filter button:disabled { opacity: .45; cursor: default; }
+.solver-diagram-waiting { flex-direction: column; gap: 14px; text-align: center; background: #0c1524; border: 1px dashed #2c3e55; border-radius: 7px; }
+.solver-diagram-waiting strong { font-size: 13px; font-weight: 500; color: #b5c6d9; }
+.solver-diagram-waiting span { color: #81bac7; font-size: 11px; }
+.solver-diagram-waiting p { color: #8093ad; font-size: 11px; }
+
+/* Solver: dedicate vertical space to the linked canvases. */
+.solver-linked-workspace { gap:8px; }
+.solver-column-heading { min-height:34px; padding:5px 10px; gap:8px; }
+.solver-model-column { position:relative; }
+.solver-display-popover>summary { cursor:pointer; list-style:none; color:#9cdfe9; font-size:11px; padding:4px 8px; border:1px solid #2a465b; border-radius:5px; background:#122338; }
+.solver-display-popover>summary::-webkit-details-marker { display:none; }
+.solver-display-popover[open]>summary { background:#164355; }
+.solver-display-popover-body { position:absolute; z-index:40; top:38px; right:8px; width:min(280px,calc(100% - 16px)); max-height:calc(100% - 48px); overflow:auto; border-radius:9px; box-shadow:0 12px 32px #0008; }
+.solver-display-popover-body .force-flow-compact { margin:0; }
+.solver-results-heading { flex-wrap:wrap; }
+.solver-results-heading>span { display:none; }
+.solver-results-heading .solver-diagram-filter { margin-left:auto; border:0; padding:0; gap:2px; }
+.solver-results-heading .solver-diagram-filter button { padding:4px 6px; }
+.solver-linked-diagrams { padding:7px; gap:6px; grid-auto-rows:minmax(145px,1fr); }
+.solver-linked-diagram { min-height:145px; }
+.solver-linked-diagram>div>div:first-child { padding:5px 8px; }
+.solver-workbench .solver-equilibrium-panel { margin:0 7px 7px; max-height:42%; }
+.solver-equilibrium-panel .mechanics-inspector { margin:0; }
+.solver-workbench .canvas-settings-row { padding-top:3px; padding-bottom:3px; }
+.solver-workbench .canvas-draw-toolbar,.solver-workbench .canvas-view-toolbar { padding-top:4px; padding-bottom:4px; }
+.solver-workbench .canvas-statusbar { padding-top:4px; padding-bottom:4px; }
+.solver-workbench .canvas-shortcut-hint { display:none; }
+@container solver-stage (min-width:760px) {
+  .solver-linked-workspace { grid-template-columns:minmax(0,1.05fr) minmax(0,1fr); align-content:stretch; overflow:hidden; }
+  .solver-model-column,.solver-result-column { height:100%; }
+}
+
+.solver-workbench .canvas-utility-bar { display:flex; flex-wrap:wrap; align-items:center; border-bottom:1px solid #243247; }
+.solver-workbench .canvas-utility-bar .canvas-view-toolbar { flex:1; border:0; }
+.solver-workbench .canvas-utility-bar .canvas-settings-row { border:0; margin-left:auto; }
+.solver-workbench .canvas-utility-bar .canvas-edit-case { display:none; }
+.solver-workbench .canvas-utility-bar .canvas-view-group { gap:2px; }
+.solver-workbench .canvas-utility-bar .canvas-new-model { font-size:0; gap:0; padding:5px; }
+.solver-workbench .canvas-utility-bar .canvas-new-model svg { width:14px; height:14px; }
+
+.canvas-editor { container-type:inline-size; container-name:canvas-controls; }
+.canvas-command-row,.canvas-config-row { display:flex; align-items:center; flex-shrink:0; min-height:36px; border-bottom:1px solid #243247; gap:5px; padding:3px 8px; white-space:nowrap; overflow-x:auto; scrollbar-width:thin; }
+.canvas-command-row .canvas-draw-toolbar,.canvas-command-row .canvas-view-toolbar,.canvas-config-row .canvas-settings-row,.canvas-config-row .canvas-tool-options { border:0; background:transparent; padding:0; flex-wrap:nowrap; }
+.canvas-command-row .canvas-draw-toolbar { gap:8px; }
+.canvas-command-row .canvas-view-toolbar { margin-left:auto; gap:4px; }
+.canvas-command-row .canvas-view-group { gap:0; }
+.canvas-command-row .canvas-view-group+.canvas-view-group { padding-left:4px; }
+.canvas-command-row .canvas-view-group button { padding:5px; }
+.canvas-command-row .canvas-tool-group { padding:1px; }
+.canvas-command-row .canvas-tool-group button { padding:5px 6px; font-size:10px; }
+.canvas-command-row .canvas-insert-group select { min-width:64px; max-width:105px; padding:5px 3px; font-size:10px; }
+.canvas-command-row .canvas-new-model { font-size:0; padding:5px; gap:0; }
+.canvas-config-row .canvas-settings-row { margin-left:auto; gap:8px; }
+.canvas-config-row .canvas-edit-case { display:none; }
+.canvas-config-row .canvas-tool-options { gap:7px; font-size:10px; }
+.canvas-config-row .canvas-settings-row { font-size:10px; }
+.canvas-config-row input[type=number],.canvas-config-row select { padding:4px 5px; font-size:10px; }
+.canvas-config-row input[type=number] { width:60px; }
+.canvas-config-row .canvas-tool-options select { width:82px; }
+.canvas-config-row .canvas-settings-row select { width:64px; }
+
+
+/* Balanced compact tool groups: model actions left, viewport actions right. */
+.canvas-command-row { min-height:40px; padding:4px 7px; gap:10px; background:#0d1728; }
+.canvas-command-row .canvas-draw-toolbar { gap:10px; }
+.canvas-command-row .canvas-tool-group { background:#09111f; border-color:#2a3a50; border-radius:6px; padding:2px; gap:2px; }
+.canvas-command-row .canvas-tool-group button { height:26px; padding:0 7px; font-size:11px; gap:5px; }
+.canvas-command-row .canvas-tool-group button[aria-pressed=true] { background:#163e4e; color:#9beaf2; box-shadow:inset 0 0 0 1px #2a6371; }
+.canvas-command-row .canvas-insert-group { gap:5px; }
+.canvas-command-row .canvas-insert-group select { height:30px; min-width:70px; max-width:110px; padding:0 6px; font-size:11px; border:1px solid #2a3a50; border-radius:6px; background:#101c2e; }
+.canvas-command-row .canvas-insert-group select:hover { border-color:#4b6a80; color:#d2e8ef; }
+.canvas-command-row .canvas-view-toolbar { padding-left:10px; border-left:1px solid #29384d; gap:5px; }
+.canvas-command-row .canvas-view-group button,.canvas-command-row .canvas-new-model { width:27px; height:28px; padding:0; display:inline-flex; justify-content:center; align-items:center; border:0; border-radius:5px; }
+.canvas-command-row .canvas-view-group button:hover:not(:disabled) { background:#223149; color:#a9e6ef; }
+.canvas-command-row .canvas-new-model { background:#162439; border:1px solid #324b61; color:#bcdce8; margin-left:3px; }
+.canvas-command-row .canvas-view-group+.canvas-view-group { padding-left:5px; }
+.canvas-command-row .canvas-view-group button:disabled { opacity:.3; }
+@container canvas-controls (max-width:550px) {
+ .canvas-command-row { gap:6px; }
+ .canvas-command-row .canvas-draw-toolbar { gap:6px; }
+ .canvas-command-row .canvas-tool-group button { padding:0 6px; }
+ .canvas-command-row .canvas-tool-group button:not([aria-pressed=true]) .canvas-tool-label { display:none; }
+ .canvas-command-row .canvas-insert-group select { min-width:65px; max-width:90px; font-size:10px; }
+ .canvas-command-row .canvas-view-toolbar { padding-left:6px; gap:2px; }
+ .canvas-command-row .canvas-view-group button,.canvas-command-row .canvas-new-model { width:25px; }
+}
+
+/* Object properties float over the canvas; selection must never resize its coordinate surface. */
+.canvas-editor .canvas-editor-body,
+.solver-model-content .canvas-editor-body.has-selection {
+  position: relative; flex: 1; min-height: 0; flex-direction: column;
+}
+.canvas-editor .canvas-editor-body .canvas-editor-surface,
+.solver-model-content .canvas-editor-body.has-selection .canvas-editor-surface {
+  flex: 1; height: auto; min-height: 200px;
+}
+.canvas-editor .canvas-inspector,
+.solver-model-content .canvas-inspector {
+  position: absolute; z-index: 10; right: 10px; bottom: 10px;
+  width: min(260px, calc(100% - 20px)); max-height: min(340px, calc(100% - 20px));
+  border: 1px solid #334155; border-radius: 8px; box-shadow: 0 8px 28px #0006;
+  overscroll-behavior: contain;
+}
+.canvas-snap-hint { font-size: 10px; color: #71869d; }
+@container canvas-controls (max-width: 550px) { .canvas-snap-hint { display: none; } }
+
+/* Incomplete models are expected while drawing: their diagnostic must not move the canvas. */
+.solver-calculation-alert {
+  position: absolute; z-index: 15; right: 18px; bottom: 18px;
+  width: min(420px, calc(45% - 20px)); max-height: 100px; overflow: auto;
+  padding: 9px 12px; border: 1px solid #786039; border-radius: 7px;
+  background: #211c14f2; color: #e7c77e; font-size: 11px; line-height: 1.6;
+  box-shadow: 0 6px 20px #0004; pointer-events: none;
+}

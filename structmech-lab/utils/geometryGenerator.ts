@@ -1,3 +1,4 @@
+import { getLineLoadRange } from './lineLoads';
 import { StructureType, SolverNode, SolverElement, Load } from '../types';
 
 export const generateGeometry = (
@@ -154,7 +155,8 @@ export const generateGeometry = (
 export const autoConnectNodes = (
     nodes: SolverNode[], 
     elements: SolverElement[], 
-    loads: Load[]
+    loads: Load[],
+    options: { tolerance?: number; endpointTolerance?: number } = {}
 ): { nodes: SolverNode[], elements: SolverElement[], loads: Load[] } => {
     const getDist = (px: number, py: number, x1: number, y1: number, x2: number, y2: number) => {
         const A = px - x1;
@@ -191,7 +193,7 @@ export const autoConnectNodes = (
         const splitNodes = nodes.filter(n => {
             if (n.id === n1.id || n.id === n2.id) return false;
             const res = getDist(n.x, n.y, n1.x, n1.y, n2.x, n2.y);
-            return res.dist < 0.05 && res.t > 0.01 && res.t < 0.99; 
+            return res.dist < (options.tolerance ?? 0.05) && res.t > (options.endpointTolerance ?? 0.01) && res.t < 1 - (options.endpointTolerance ?? 0.01);
         }).map(n => ({
             node: n,
             t: getDist(n.x, n.y, n1.x, n1.y, n2.x, n2.y).t
@@ -232,17 +234,22 @@ export const autoConnectNodes = (
                 const lClone = { ...l, id: `auto-${el.id}-${elId}-${li}` };
                 lClone.elementId = elId;
                 
-                if (l.type === 'distributed') {
-                    newLoads.push(lClone);
-                } else if (l.type === 'trapezoidal') {
-                    const startMagnitude = l.magnitude;
-                    const endMagnitude = l.magnitudeEnd ?? l.magnitude;
-                    lClone.magnitude = startMagnitude + (endMagnitude - startMagnitude) * prevT;
-                    lClone.magnitudeEnd = startMagnitude + (endMagnitude - startMagnitude) * currentT;
+                if (l.type === 'distributed' || l.type === 'trapezoidal') {
+                    const range = getLineLoadRange(l);
+                    const overlapStart = Math.max(prevT, range.start);
+                    const overlapEnd = Math.min(currentT, range.end);
+                    if (overlapEnd <= overlapStart) return;
+                    lClone.startLocation = (overlapStart - prevT) / (currentT - prevT);
+                    lClone.endLocation = (overlapEnd - prevT) / (currentT - prevT);
+                    if (l.type === 'trapezoidal') {
+                        const delta = (l.magnitudeEnd ?? l.magnitude) - l.magnitude;
+                        lClone.magnitude = l.magnitude + delta * (overlapStart - range.start) / (range.end - range.start);
+                        lClone.magnitudeEnd = l.magnitude + delta * (overlapEnd - range.start) / (range.end - range.start);
+                    }
                     newLoads.push(lClone);
                 } else {
                     const loc = l.location !== undefined ? l.location : 0.5;
-                    if (loc >= prevT - 1e-4 && loc <= currentT + 1e-4) {
+                    if (loc >= prevT && (loc < currentT || (isLast && loc <= currentT))) {
                         const segLen = currentT - prevT;
                         const newLoc = segLen > 1e-6 ? (loc - prevT) / segLen : 0;
                         lClone.location = Math.max(0, Math.min(1, newLoc));

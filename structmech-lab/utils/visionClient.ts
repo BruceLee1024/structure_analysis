@@ -1,4 +1,5 @@
-import { VISION_MODELS } from './aiModels';
+import { getVisionModel, getVisionApiKey } from './aiModels';
+import { requestCompletion } from './aiTransport';
 
 export type MultimodalContentPart =
   | { type: 'text'; text: string }
@@ -10,20 +11,18 @@ export interface VisionMessage {
 }
 
 function getVisionConfig() {
-  const apiKey = localStorage.getItem('vision_api_key');
-  const modelId = localStorage.getItem('vision_model') || 'kimi-k2.5';
-  const model = VISION_MODELS.find(item => item.id === modelId) || VISION_MODELS[0];
+  const model = getVisionModel();
+  const apiKey = getVisionApiKey(model, localStorage.getItem('vision_api_key') || '',
+    localStorage.getItem('ai_model') || 'deepseek', localStorage.getItem('ai_api_key') || '');
   return { apiKey, model };
 }
 
 export function isVisionConfigured(): boolean {
-  const { apiKey } = getVisionConfig();
-  return Boolean(apiKey);
+  try { return Boolean(getVisionConfig().apiKey); } catch { return false; }
 }
 
 export function getVisionModelName(): string {
-  const { model } = getVisionConfig();
-  return model.name;
+  try { return getVisionConfig().model.name; } catch { return '未选择视觉模型'; }
 }
 
 export function fileToBase64DataUrl(file: File): Promise<string> {
@@ -212,33 +211,8 @@ export async function sendVisionCompletion(
   options?: { maxTokens?: number },
 ): Promise<string> {
   const { apiKey, model } = getVisionConfig();
-
-  if (!apiKey) {
-    throw new Error('未配置视觉模型 API Key，请在设置中配置');
-  }
-
-  const response = await fetch(model.apiUrl, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify({
-      model: model.model,
-      messages,
-      max_tokens: options?.maxTokens ?? 2000,
-      thinking: { type: 'disabled' },
-    }),
-  });
-
-  if (!response.ok) {
-    const errorText = await response.text().catch(() => '');
-    throw new Error(`视觉模型 API 错误 (${response.status}): ${errorText.slice(0, 200)}`);
-  }
-
-  const data = await response.json();
-  const msg = data.choices?.[0]?.message;
-  return msg?.content ?? msg?.reasoning_content ?? '';
+  if (!apiKey) throw new Error('未配置视觉模型 API Key，请在设置中配置');
+  return requestCompletion(model, apiKey, messages, { maxTokens: 2000, ...options });
 }
 
 export async function sendVisionCompletionStream(
@@ -247,61 +221,6 @@ export async function sendVisionCompletionStream(
   options?: { maxTokens?: number },
 ): Promise<string> {
   const { apiKey, model } = getVisionConfig();
-
-  if (!apiKey) {
-    throw new Error('未配置视觉模型 API Key，请在设置中配置');
-  }
-
-  const response = await fetch(model.apiUrl, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify({
-      model: model.model,
-      messages,
-      max_tokens: options?.maxTokens ?? 2000,
-      thinking: { type: 'disabled' },
-      stream: true,
-    }),
-  });
-
-  if (!response.ok) {
-    const errorText = await response.text().catch(() => '');
-    throw new Error(`视觉模型 API 错误 (${response.status}): ${errorText.slice(0, 200)}`);
-  }
-
-  const reader = response.body?.getReader();
-  if (!reader) throw new Error('当前视觉模型不支持流式输出');
-
-  const decoder = new TextDecoder();
-  let accumulated = '';
-  let done = false;
-
-  while (!done) {
-    const { done: chunkDone, value } = await reader.read();
-    done = chunkDone;
-    if (!value) continue;
-
-    const text = decoder.decode(value, { stream: true });
-    for (const line of text.split('\n')) {
-      const trimmed = line.trim();
-      if (!trimmed.startsWith('data: ')) continue;
-      const payload = trimmed.slice(6);
-      if (payload === '[DONE]') { done = true; break; }
-      try {
-        const parsed = JSON.parse(payload) as { choices?: { delta?: { content?: string } }[] };
-        const delta = parsed.choices?.[0]?.delta?.content;
-        if (typeof delta === 'string' && delta) {
-          accumulated += delta;
-          onChunk(delta);
-        }
-      } catch {
-        // ignore malformed SSE lines
-      }
-    }
-  }
-
-  return accumulated;
+  if (!apiKey) throw new Error('未配置视觉模型 API Key，请在设置中配置');
+  return requestCompletion(model, apiKey, messages, { maxTokens: 2000, ...options }, onChunk);
 }

@@ -1,0 +1,9 @@
+.load-direction-popover { box-sizing:border-box; width:140px; padding:5px; border:1px solid #b6ccd5; border-radius:8px; background:#f8fbff; box-shadow:0 3px 12px #1731491a; font-family:inherit; color:#36536b; }
+.load-direction-buttons { display:flex; gap:2px; }
+.load-direction-buttons button { display:grid; place-items:center; width:20px; height:23px; padding:0; border:1px solid transparent; border-radius:4px; background:#e9eff6; color:#36536b; font:600 14px/1 sans-serif; cursor:pointer; }
+.load-direction-buttons button:hover,.load-direction-buttons button[aria-pressed="true"] { background:#cff0f4; border-color:#70c3cf; color:#006d80; }
+.load-direction-buttons button:focus-visible { outline:2px solid #0891b2; outline-offset:1px; }
+.load-direction-popover span { display:block; padding-top:4px; font-size:8px; line-height:12px; white-space:nowrap; }
+.load-rotation-handle { cursor:grab; touch-action:none; outline:none; }
+.load-rotation-handle:active { cursor:grabbing; }
+.load-rotation-handle:focus-visible circle { stroke:#0e7490; stroke-width:2.5; }

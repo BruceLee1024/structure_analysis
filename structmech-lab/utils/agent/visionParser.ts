@@ -1,3 +1,4 @@
+import { projectLineLoadRange } from '../lineLoads';
 import type { AgentAction, AgentParseResult } from './types';
 import {
   sendVisionCompletion,
@@ -23,7 +24,8 @@ function buildDirectPrompt(userHint?: string): string {
     '## 第二步：列出节点表',
     '仔细读取图中标注的尺寸，累加计算每个节点的精确坐标。',
     '只在以下位置设置节点：支座、内铰、杆件端点、杆件交叉点。',
-    '荷载作用点不需要节点（荷载用坐标定位）。',
+    '荷载作用点和均布荷载分界点不需要节点（荷载用坐标和起止范围定位）。',
+    '字母标注或尺寸分界本身不代表支座或内铰；没有支座符号时不能添加约束或弯矩释放。',
     '',
     '格式：',
     '| 节点 | x(m) | y(m) | 支座类型 | 是否内铰 |',
@@ -77,6 +79,8 @@ function buildDirectPrompt(userHint?: string): string {
     '【loads 规则】',
     '- 集中力: {"type": "point", "x": 坐标, "y": 坐标, "fx": 水平力, "fy": 竖向力}',
     '- 均布荷载: {"type": "distributed", "x1": 起点x, "y1": 起点y, "x2": 终点x, "y2": 终点y, "qx": 0, "qy": -10}',
+    '- 均布荷载必须读取实际起止坐标，不能把局部荷载扩展到整根梁；可以跨越多个单元。',
+    '- 例如：A 固定、C 自由、AC=4m，AB=2m，AB 段向下 3kN/m，C 向下 2kN：节点 A(0,0), C(4,0)，单元 AC；均布荷载 x1=0,x2=2,qy=-3；集中力 x=4,fy=-2。B 只是荷载分界，不能识别成支座或内铰。',
     '- 力矩: {"type": "moment", "x": 坐标, "y": 坐标, "m": 值}（逆时针为正）',
     '- 向下为负 fy，向左为负 fx',
     '- 无力学荷载（如只有温度）则 loads 为空数组 []',
@@ -351,7 +355,7 @@ export async function parseImageToActions(
         const dist = Math.sqrt((px - projX) ** 2 + (py - projY) ** 2);
         if (dist < bestDist) {
           bestDist = dist;
-          bestElem = { elemId: e.id, location: Math.round(t * 100) / 100 };
+          bestElem = { elemId: e.id, location: t };
         }
       }
       return bestElem;
@@ -392,15 +396,16 @@ export async function parseImageToActions(
           }
         }
         if (x1 != null && x2 != null) {
-          // Find all elements that overlap with the load range
-          const midX = (x1 + x2) / 2;
-          const midY = ((y1 ?? 0) + (y2 ?? 0)) / 2;
-          const hit = findElementAt(midX, midY);
-          if (hit) {
-            const mag = Math.sqrt((l.qx || 0) ** 2 + (l.qy || 0) ** 2);
-            const dir = Math.abs(l.qx || 0) > Math.abs(l.qy || 0) ? 'x' : 'y';
-            const sign = dir === 'y' ? Math.sign(l.qy || -1) : Math.sign(l.qx || -1);
-            loads.push({ type: 'distributed', magnitude: mag * sign, direction: dir, elementId: hit.elemId });
+          for (const element of elements) {
+            const start = nodes.find((n: any) => n.id === element.startNode);
+            const end = nodes.find((n: any) => n.id === element.endNode);
+            if (!start || !end) continue;
+            const range = projectLineLoadRange(start, end, { x: x1, y: y1 ?? 0 }, { x: x2, y: y2 ?? 0 });
+            if (!range) continue;
+            // Preserve both global components rather than rotating or combining them.
+            for (const [direction, magnitude] of [['x', Number(l.qx ?? 0)], ['y', Number(l.qy ?? 0)]] as const) {
+              if (magnitude) loads.push({ type: 'distributed', magnitude, direction, elementId: element.id, ...range });
+            }
           }
         }
       } else if (l.type === 'moment') {

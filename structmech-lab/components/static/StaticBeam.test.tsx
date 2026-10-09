@@ -1,0 +1,116 @@
+import React from 'react';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { createStorageMock } from '../../tests/storageMock';
+import StaticBeam from './StaticBeam';
+
+const { sync } = vi.hoisted(() => ({ sync: vi.fn() }));
+vi.mock('../../hooks/useAIEngine', () => ({ useAIEngine: () => ({ sync, ctx: { toPromptString: () => '' }, bubble: null, milestone: null }) }));
+vi.mock('../AITutor', () => ({ default: ({ context }: { context: string }) => <div data-testid="tutor-context">{context}</div> }));
+vi.mock('../ui/ProgressBar', () => ({ default: () => null }));
+beforeEach(() => { vi.stubGlobal('localStorage', createStorageMock()); sync.mockClear(); });
+afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
+const field = (name: string, value: string) => fireEvent.change(screen.getByLabelText(name), { target: { value } });
+const add = (type: string) => { field('新增荷载类型', type); fireEvent.click(screen.getByRole('button', { name: '新增荷载' })); };
+const results = () => sync.mock.lastCall![1];
+const expand = (n: number) => fireEvent.click(screen.getByLabelText(`荷载 ${n} 设置`));
+
+it('集中力可以按米定位、改变任意方向，反力与 M/V/N 图同步更新', () => {
+  render(<StaticBeam />);
+  expect(results()).toMatchObject({ RA: 10, RB: 10, Mmax: 40, Nmax: 0 });
+  field('荷载 1 位置', '2'); field('荷载 1 方向', 'up');
+  expect(results()).toMatchObject({ RA: -15, RB: -5, Mmax: 30 });
+  field('荷载 1 方向', 'right');
+  expect(results()).toMatchObject({ RA: 0, RB: 0, Ax: -20, Mmax: 0, Nmax: 20 });
+  const axial = screen.getByRole('img', { name: /^轴力图/ });
+  expect(axial.querySelector('.engineering-value-label')).toHaveTextContent('20');
+  field('荷载 1 方向', 'custom'); field('荷载 1 角度', '135');
+  expect(results().Ax).toBeCloseTo(20 / Math.sqrt(2));
+  expect(results().RA).toBeCloseTo(-15 / Math.sqrt(2));
+  expect(screen.getByTestId('tutor-context')).toHaveTextContent('θ=135°');
+});
+it('局部均布和集中力同时加载，切换悬臂梁后复现参考图的精确结果', () => {
+  render(<StaticBeam />);
+  fireEvent.click(screen.getByRole('button', { name: '悬臂梁' }));
+  fireEvent.click(screen.getByText('几何尺寸', { exact: true }));
+  field('跨度 L', '4'); fireEvent.blur(screen.getByLabelText('跨度 L'));
+  field('荷载 1 大小', '2'); field('荷载 1 位置', '4');
+  add('uniform'); field('荷载 2 强度', '3'); field('荷载 2 终点', '2');
+  expect(results()).toMatchObject({ RA: 8, fixedMoment: 14, Mmax: 14, Vmax: 8 });
+  expect(screen.getByTestId('tutor-context')).toHaveTextContent('2 kN，x=4 m');
+  expect(screen.getByTestId('tutor-context')).toHaveTextContent('区间 0–2 m');
+  expect(screen.getByRole('group', { name: '梁结构与多荷载交互图' })).toHaveTextContent('q = 3 kN/m');
+});
+it('多个集中力、三角形荷载与弯矩可同时加载，编辑和删除互不影响', () => {
+  render(<StaticBeam />);
+  add('linear'); field('荷载 2 终点强度', '12');
+  expect(results().RA).toBeCloseTo(26); expect(results().RB).toBeCloseTo(42);
+  add('moment'); field('荷载 3 位置', '3'); field('荷载 3 大小', '24');
+  expect(results().RA).toBeCloseTo(29); expect(results().RB).toBeCloseTo(39);
+  field('荷载 3 方向', 'cw');
+  expect(results().RA).toBeCloseTo(23); expect(results().RB).toBeCloseTo(45);
+  fireEvent.click(screen.getByRole('button', { name: '删除荷载 3' }));
+  expect(results().RA).toBeCloseTo(26); expect(results().RB).toBeCloseTo(42);
+  expand(1); expect(screen.getByLabelText('荷载 1 大小')).toHaveValue(20);
+  expect(screen.getByLabelText('荷载 1 类型')).toHaveValue('point');
+});
+it('外伸段支持多荷载，缩短梁长会使位置与范围保持在有效梁长内', () => {
+  render(<StaticBeam />);
+  fireEvent.click(screen.getByRole('button', { name: '外伸梁' }));
+  field('荷载 1 位置', '10');
+  expect(results()).toMatchObject({ RA: -5, RB: 25, Mmax: 40 });
+  add('uniform'); field('荷载 2 起点', '7');
+  field('荷载 2 终点', '10');
+  fireEvent.click(screen.getByRole('button', { name: '简支梁' }));
+  expect(screen.getByLabelText('荷载 2 终点')).toHaveValue(8);
+  expect(screen.getByLabelText('荷载 2 起点')).toHaveValue(7);
+  expand(1); expect(screen.getByLabelText('荷载 1 位置')).toHaveValue(8);
+  expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+});
+it('删除所有荷载会清零，键盘可在梁上添加并移动新荷载', () => {
+  render(<StaticBeam />);
+  fireEvent.click(screen.getByRole('button', { name: '删除荷载 1' }));
+  expect(results()).toMatchObject({ RA: 0, RB: 0, Mmax: 0, Vmax: 0, Nmax: 0 });
+  const beam = screen.getByRole('button', { name: '在梁上设置荷载位置' });
+  fireEvent.keyDown(beam, { key: 'Enter' });
+  expect(screen.getByLabelText('荷载 1 位置')).toHaveValue(4);
+  fireEvent.keyDown(beam, { key: 'ArrowRight' });
+  expect(screen.getByLabelText('荷载 1 位置')).toHaveValue(4.1);
+  expect(results().RA).toBeCloseTo(9.75);
+});
+it('非法区间及越界位置输入在提交时修正，零荷载不绘制虚假的力箭头', () => {
+  render(<StaticBeam />);
+  field('荷载 1 位置', '99'); fireEvent.blur(screen.getByLabelText('荷载 1 位置'));
+  expect(screen.getByLabelText('荷载 1 位置')).toHaveValue(8);
+  field('荷载 1 大小', '0');
+  const load = screen.getByRole('button', { name: '选择图中荷载 1' });
+  expect(load.querySelector('path')).toBeNull();
+  add('uniform'); field('荷载 2 终点', '0'); fireEvent.blur(screen.getByLabelText('荷载 2 终点'));
+  expect(screen.getByLabelText('荷载 2 终点')).toHaveValue(.001);
+  expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+});
+
+it('图上四向、双击与键盘旋转更新计算，不改变荷载大小和位置；力矩只切换转向', () => {
+  render(<StaticBeam />);
+  const arrow = screen.getByRole('button', { name: '选择图中荷载 1' });
+  fireEvent.click(arrow);
+  fireEvent.click(screen.getByRole('button', { name: '荷载向右' }));
+  expect(results()).toMatchObject({ RA: 0, RB: 0, Ax: -20, Mmax: 0 });
+  fireEvent.doubleClick(arrow);
+  expect(screen.getByLabelText('荷载 1 方向')).toHaveValue('left');
+  expect(results().Ax).toBe(20);
+  fireEvent.click(screen.getByRole('button', { name: '荷载向上' }));
+  fireEvent.keyDown(screen.getByRole('slider', { name: '旋转荷载方向' }), { key: 'ArrowRight', shiftKey: true });
+  expect(screen.getByLabelText('荷载 1 方向')).toHaveValue('custom');
+  expect(screen.getByLabelText('荷载 1 角度')).toHaveValue(105);
+  expect(screen.getByLabelText('荷载 1 位置')).toHaveValue(4);
+  expect(screen.getByLabelText('荷载 1 大小')).toHaveValue(20);
+  expect(results().RA).toBeCloseTo(-10 * Math.sin(105 * Math.PI / 180));
+  add('moment');
+  const moment = screen.getByRole('button', { name: '选择图中荷载 2' });
+  fireEvent.click(moment);
+  expect(screen.queryByRole('slider', { name: '旋转荷载方向' })).toBeNull();
+  expect(screen.getByLabelText('荷载 2 方向')).toHaveValue('ccw');
+  fireEvent.doubleClick(moment);
+  expect(screen.getByLabelText('荷载 2 方向')).toHaveValue('cw');
+});

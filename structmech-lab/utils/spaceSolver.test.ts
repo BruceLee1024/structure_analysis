@@ -196,6 +196,52 @@ describe('solveSpaceFrame', () => {
 
     expect(tip?.dx).toBeCloseTo(0.02, 5);
     expect(support?.fx).toBeCloseTo(-10, 5);
+    expect(result.elements[0].stations[0].axial).toBeCloseTo(10, 8);
+  });
+
+  it('recovers simply supported midspan deflection with both end translations restrained', () => {
+    const pinned: SpaceNode[] = [
+      { ...nodes[0], restraints: [true, true, true, true, false, false] },
+      { ...nodes[1], restraints: [false, true, true, false, false, false] },
+    ];
+    const q = -2;
+    const result = solveSpaceFrame(pinned, [element], [{
+      id: 'q', elementId: 1, type: 'distributed', direction: 'y', coordinateSystem: 'local', startMagnitude: q, endMagnitude: q,
+    }]);
+    const EI = element.E * 1e6 * element.Iz * 1e-6;
+    expect(result.status).toBe('ok');
+    expect(result.maxDisplacement).toBeCloseTo(0, 10);
+    expect(result.elements[0].transverseDeflection?.maxMm).toBeCloseTo(Math.abs(5 * q * 4 ** 4 / (384 * EI)) * 1000, 9);
+    expect(result.elements[0].transverseDeflection?.locationM).toBeCloseTo(2, 8);
+  });
+
+  it('recovers the local-z distributed-load moment using the correct bending sign', () => {
+    const q = -2;
+    const result = solveSpaceFrame(nodes, [element], [{
+      id: 'q', elementId: 1, type: 'distributed', direction: 'z', coordinateSystem: 'local', startMagnitude: q, endMagnitude: q,
+    }]);
+    const member = result.elements[0];
+    expect(member.stations.at(-1)?.momentY).toBeCloseTo(0, 9);
+    expect(member.maxAbsMomentY).toBeCloseTo(Math.abs(q) * 4 ** 2 / 2, 8);
+  });
+
+  it('includes the off-grid exact moment extremum under a triangular load', () => {
+    const pinned: SpaceNode[] = [
+      { ...nodes[0], restraints: [true, true, true, true, false, false] },
+      { ...nodes[1], restraints: [false, true, true, false, false, false] },
+    ];
+    const result = solveSpaceFrame(pinned, [element], [{
+      id: 'q', elementId: 1, type: 'trapezoidal', direction: 'y', coordinateSystem: 'local', startMagnitude: 0, endMagnitude: -3,
+    }]);
+    const peak = result.elements[0].stations.reduce((best, station) => Math.abs(station.momentZ) > Math.abs(best.momentZ) ? station : best);
+    expect(peak.x).toBeCloseTo(4 / Math.sqrt(3), 9);
+    expect(result.elements[0].maxAbsMomentZ).toBeCloseTo(3 * 4 ** 2 / (9 * Math.sqrt(3)), 9);
+  });
+
+  it('preserves tiny nonzero results before display formatting', () => {
+    const result = solveSpaceFrame(nodes, [element], [{ id: 'p', nodeId: 2, type: 'point', direction: 'x', magnitude: 1e-9 }]);
+    expect(result.displacements[1].dx).toBeGreaterThan(0);
+    expect(result.reactions[0].fx).toBeCloseTo(-1e-9, 16);
   });
 
   it('builds an orthonormal 12x12 transformation matrix', () => {
@@ -231,6 +277,9 @@ describe('solveSpaceFrame', () => {
     ], { backend: 'js-csr-pcg', maxIterations: 1, tolerance: 1e-16 });
 
     expect(fallback.stats?.solverDiagnostics?.fallbackUsed).toBe(true);
+    expect(fallback.stats?.backend).toBe('dense-reference');
+    expect(fallback.stats?.solverDiagnostics?.actualBackend).toBe('dense-reference');
+    expect(fallback.status).toBe('warning');
     expect(fallback.stats?.solverDiagnostics?.preconditioner).toBe('symmetric-diagonal');
     expect(fallback.stats?.warnings.some(warning => warning.includes('dense reference'))).toBe(true);
     expect(fallback.displacements.find(item => item.nodeId === 2)?.dz).toBeCloseTo(
@@ -246,7 +295,7 @@ describe('solveSpaceFrame', () => {
 
     expect(result.displacements).toHaveLength(2);
     expect(result.stats?.solverDiagnostics?.requestedBackend).toBe('wasm-sparse');
-    expect(result.stats?.solverDiagnostics?.actualBackend).toBe('wasm-unavailable-fallback');
+    expect(result.stats?.solverDiagnostics?.actualBackend).toBe('dense-reference');
     expect(result.stats?.warnings.some(warning => warning.includes('WASM sparse solver'))).toBe(true);
   });
 
@@ -263,6 +312,22 @@ describe('solveSpaceFrame', () => {
     expect(result.stats?.warnings.some(warning => warning.includes('节点 10 ux'))).toBe(true);
     expect(result.status).toBe('failed');
     expect(result.equilibrium?.reliability).toBe('failed');
+  });
+
+  it('rejects a floating frame with dependent nonzero stiffness rows even without loads', () => {
+    const result = solveSpaceFrame(nodes.map(node => ({
+      ...node, restraints: [false, false, false, false, false, false] as SpaceNode['restraints'],
+    })), [element], [], { backend: 'dense-reference' });
+    expect(result.stats?.matrixDiagnostics?.nearZeroRowCount).toBe(0);
+    expect(result.status).toBe('failed');
+    expect(result.stats?.solverDiagnostics?.reason).toBe('singular');
+  });
+
+  it('also rejects unloaded rigid-body motion on the PCG path', () => {
+    const floating = nodes.map(node => ({ ...node, restraints: [false, false, false, false, false, false] as SpaceNode['restraints'] }));
+    const result = solveSpaceFrame(floating, [element], [], { backend: 'js-csr-pcg', fallback: 'none' });
+    expect(result.status).toBe('failed');
+    expect(result.stats?.solverDiagnostics?.reason).toBe('unconstrained');
   });
 
   it('reports zero-stiffness mechanism DOFs even when they are not directly loaded', () => {

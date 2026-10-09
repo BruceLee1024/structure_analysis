@@ -9,16 +9,16 @@ const COLORS: Record<string, string> = {
 };
 
 const ResultCard: React.FC<{ label: string; value: string; unit: string; color?: string; aiHint?: string }> = ({ label, value, unit, color = 'blue', aiHint }) => (
-  <div className={`${COLORS[color] ?? COLORS.blue} p-3 text-left min-w-0 h-full flex flex-col justify-center gap-1`}>
-    <div className="text-[10px] font-semibold opacity-60 tracking-wide truncate">
+  <div className={`learning-result-card ${COLORS[color] ?? COLORS.blue} text-left min-w-0 h-full flex flex-col`}>
+    <div className="learning-result-label">
       {label}
     </div>
-    <div className="text-base font-bold leading-none tracking-tight">
+    <div className="learning-result-value">
       {value}
-      {unit && <span className="ml-1 text-[10px] font-medium opacity-60">{unit}</span>}
+      {unit && <span className="learning-result-unit">{unit}</span>}
     </div>
     {aiHint && (
-      <div className="mt-1 text-[9px] leading-snug opacity-50 line-clamp-2">
+      <div className="learning-result-hint line-clamp-2" title={aiHint}>
         {aiHint}
       </div>
     )}

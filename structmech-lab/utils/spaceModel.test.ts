@@ -343,6 +343,9 @@ describe('space model helpers', () => {
     expect(batch.diagnostics.loadCasesSolved).toBe(1);
     expect(batch.diagnostics.combinationsSolved).toBe(1);
     expect(batch.diagnostics.stiffnessAssemblies).toBe(1);
+    expect(batch.diagnostics.matrixDiagnosticsBuilds).toBe(1);
+    expect(batch.diagnostics.denseFactorizations).toBe(1);
+    expect(batch.results[1].result.stats?.preparation?.denseFactorReused).toBe(true);
     expect(batch.diagnostics.loadVectorsBuilt).toBe(2);
     expect(model.loads.map(load => load.id)).toEqual(originalLoadIds);
   });

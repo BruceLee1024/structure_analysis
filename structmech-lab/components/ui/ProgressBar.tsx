@@ -1,4 +1,11 @@
-import React from 'react';
+import React, { useSyncExternalStore } from 'react';
+const subscribe = (notify: () => void) => {
+  window.addEventListener('learning-progress-changed', notify);
+  window.addEventListener('storage', notify);
+  return () => { window.removeEventListener('learning-progress-changed', notify); window.removeEventListener('storage', notify); };
+};
+const snapshot = () => { try { return localStorage.getItem('structlab_learning_progress') ?? ''; } catch { return ''; } };
+
 import { getExplorationPercent, getAchievedMilestones } from '../../utils/learningProgress';
 
 interface ProgressBarProps {
@@ -7,13 +14,14 @@ interface ProgressBarProps {
 }
 
 const ProgressBar: React.FC<ProgressBarProps> = ({ currentModule }) => {
+  useSyncExternalStore(subscribe, snapshot, () => '');
   const percent = getExplorationPercent();
   const achieved = getAchievedMilestones();
 
   if (percent === 0) return null;
 
   return (
-    <div className="bg-white/80 backdrop-blur-sm rounded-lg border border-slate-200/60 px-3 py-2 shadow-sm">
+    <div className="learning-progress bg-white/80 rounded-lg border border-slate-200/60 px-3 py-2">
       <div className="flex items-center justify-between mb-1">
         <span className="text-[10px] font-medium text-slate-500">
           学习进度 {currentModule && <span className="text-indigo-500">· {currentModule}</span>}
@@ -27,7 +35,7 @@ const ProgressBar: React.FC<ProgressBarProps> = ({ currentModule }) => {
           <span className="text-[10px] font-bold text-indigo-600 ml-1">{percent}%</span>
         </div>
       </div>
-      <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden">
+      <div role="progressbar" aria-label="学习进度" aria-valuemin={0} aria-valuemax={100} aria-valuenow={percent} className="h-1.5 bg-slate-100 rounded-full overflow-hidden">
         <div
           className="h-full bg-gradient-to-r from-indigo-400 to-blue-500 rounded-full transition-all duration-700"
           style={{ width: `${percent}%` }}

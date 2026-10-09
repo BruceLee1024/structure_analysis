@@ -4,11 +4,14 @@ import {
   csrMatVec,
   csrToDense,
   extractCsrSubmatrix,
-  pcgSolve,
+  preparePcgSolver,
   type CsrMatrixDiagnostics,
   type SparsePreconditioner,
   type SparseMatrixCSR,
+  type PreparedPcgSolver,
 } from './sparseMatrix';
+import { findUnrestrainedSpaceComponents } from './spaceStability';
+import { buildSpaceDisplacementCurve, buildSpaceForceStations, getSpaceTransverseDeflection } from './spaceResponse';
 
 export type SpaceDirection = 'x' | 'y' | 'z';
 
@@ -20,6 +23,7 @@ export type SpaceSolverFallback = 'auto' | 'none' | 'dense-reference-small';
 export type SpaceSolverDiagnosticsMode = 'basic' | 'extended';
 export type SpaceSolverActualBackend = 'dense-reference' | 'js-csr-pcg' | 'wasm-unavailable-fallback';
 export type SpaceAnalysisStatus = 'ok' | 'warning' | 'failed';
+export type SpaceSolveReason = 'converged' | 'singular' | 'unconstrained' | 'non-positive-curvature' | 'non-finite' | 'iteration-limit' | 'true-residual';
 
 export interface SpaceSolverOptions {
   backend?: SpaceSolverBackend;
@@ -41,12 +45,25 @@ export interface SolverStats {
   iterations?: number;
   relativeResidual?: number;
   warnings: string[];
+  preparation?: {
+    stiffnessReused: boolean;
+    diagnosticsReused: boolean;
+    denseFactorReused: boolean;
+    preconditionerReused: boolean;
+    stiffnessAssemblies: number;
+    matrixDiagnosticsBuilds: number;
+    denseFactorizations: number;
+    preconditionerBuilds: number;
+    solves: number;
+  };
   matrixDiagnostics?: CsrMatrixDiagnostics;
   solverDiagnostics?: {
     requestedBackend: SpaceSolverBackend;
     actualBackend: SpaceSolverActualBackend;
     preconditioner: SpacePreconditioner;
     fallbackUsed: boolean;
+    converged?: boolean;
+    reason?: SpaceSolveReason;
     residualHistory?: number[];
   };
 }
@@ -72,6 +89,7 @@ interface LinearSolveResult {
   iterations?: number;
   relativeResidual?: number;
   converged: boolean;
+  reason?: SpaceSolveReason;
   warnings: string[];
   residualHistory?: number[];
 }
@@ -133,6 +151,8 @@ export interface SpaceElementResult {
   length: number;
   localEndForces: number[];
   localDisplacements: number[];
+  displacementCurve?: { x: number[]; y: number[]; z: number[] };
+  transverseDeflection?: { maxMm: number; locationM: number; reference: 'chord' | 'fixed-start' | 'fixed-end' };
   releaseForces?: {
     start: { rx: number; ry: number; rz: number };
     end: { rx: number; ry: number; rz: number };
@@ -203,6 +223,10 @@ export interface SpaceAnalysisResult {
       maxAbs: number;
     };
     passed: boolean;
+    forceResidual?: number;
+    momentResidual?: number;
+    forceTolerance?: number;
+    momentTolerance?: number;
     reliability?: SpaceAnalysisStatus;
   };
   error?: string;
@@ -214,11 +238,6 @@ const RIGID_BODY_TOLERANCE = 1e-10;
 
 const createMatrix = (rows: number, cols: number) => Array.from({ length: rows }, () => Array(cols).fill(0));
 const createVector = (size: number) => Array(size).fill(0);
-
-const cleanValue = (value: number) => {
-  if (Math.abs(value) < 1e-9) return 0;
-  return parseFloat(value.toFixed(6));
-};
 
 const dot = (a: number[], b: number[]) => a.reduce((sum, value, index) => sum + value * b[index], 0);
 const cross = (a: number[], b: number[]) => [
@@ -264,7 +283,7 @@ const multiplyMatrixVector12 = (matrix: number[][], vector: ArrayLike<number>) =
   return result;
 };
 
-const cleanVector = (vector: ArrayLike<number>) => Array.from(vector, cleanValue);
+const cleanVector = (vector: ArrayLike<number>) => Array.from(vector);
 
 const solveLinearSystem = (A: number[][], b: number[]) => {
   const n = b.length;
@@ -416,14 +435,6 @@ const emptyLocalElementVector = () => createVector(12);
 const addToVector = (target: number[], source: number[]) => {
   for (let index = 0; index < target.length; index++) target[index] += source[index] ?? 0;
 };
-
-const getLinearLoadIntegral = (qStart: number, qEnd: number, length: number, x: number) => (
-  qStart * x + (qEnd - qStart) * x ** 2 / (2 * length)
-);
-
-const getLinearLoadMomentIntegral = (qStart: number, qEnd: number, length: number, x: number) => (
-  qStart * x ** 2 / 2 + (qEnd - qStart) * x ** 3 / (6 * length)
-);
 
 const getLocalElementLoadComponents = (load: SpaceElementLoad, T: number[][]): ElementAppliedLoad => {
   const startMagnitude = load.startMagnitude;
@@ -601,6 +612,20 @@ export interface SpaceFrameAnalysisContext {
   elementCache: ElementCache;
   stiffnessAssemblyMs: number;
 }
+
+interface ContextPreparation {
+  diagnostics: Map<SpaceSolverDiagnosticsMode, CsrMatrixDiagnostics>;
+  pcg: Map<SpacePreconditioner, PreparedPcgSolver>;
+  floating: ReturnType<typeof findUnrestrainedSpaceComponents>;
+  zeroDofs: number[];
+  dense?: { key: string; active: Int32Array; matrix: number[][]; scale: number[]; factor: number[][] | null };
+  matrixDiagnosticsBuilds: number;
+  denseFactorizations: number;
+  preconditionerBuilds: number;
+  solves: number;
+}
+
+const contextPreparations = new WeakMap<SpaceFrameAnalysisContext, ContextPreparation>();
 
 const now = () => globalThis.performance?.now?.() ?? Date.now();
 
@@ -823,6 +848,9 @@ const buildReducedSystem = (globalK: SparseMatrixCSR, numericalModel: NumericalM
 
 export const prepareSpaceFrameAnalysis = (nodes: SpaceNode[], elements: SpaceElement[]): SpaceFrameAnalysisContext => {
   const startMs = now();
+  // A prepared context owns a snapshot; edits to the caller's model cannot corrupt it.
+  nodes = nodes.map(node => ({ ...node, restraints: [...node.restraints], springStiffness: node.springStiffness ? [...node.springStiffness] : undefined }));
+  elements = elements.map(element => ({ ...element, releaseStart: element.releaseStart ? { ...element.releaseStart } : undefined, releaseEnd: element.releaseEnd ? { ...element.releaseEnd } : undefined }));
   const numericalModel = buildSpaceNumericalModel(nodes, elements, []);
   const nodeIndex = createNodeIndex(nodes);
   const { globalK, elementCache } = assembleSpaceFrameStiffness(nodes, elements, numericalModel, nodeIndex);
@@ -839,8 +867,8 @@ export const prepareSpaceFrameAnalysis = (nodes: SpaceNode[], elements: SpaceEle
   };
 };
 
-const solveDenseSpd = (A: number[][], b: number[]) => {
-  const n = b.length;
+const factorDenseSpd = (A: number[][]) => {
+  const n = A.length;
   const L = createMatrix(n, n);
 
   for (let row = 0; row < n; row++) {
@@ -856,6 +884,11 @@ const solveDenseSpd = (A: number[][], b: number[]) => {
     }
   }
 
+  return L;
+};
+
+const solveDenseFactor = (L: number[][], b: number[]) => {
+  const n = b.length;
   const y = createVector(n);
   for (let row = 0; row < n; row++) {
     let sum = b[row];
@@ -881,36 +914,36 @@ const expandReducedDisplacements = (x: Float64Array, numericalModel: NumericalMo
   return displacementsRaw;
 };
 
-const solveDenseReference = (reducedK: SparseMatrixCSR, reducedF: Float64Array, numericalModel: NumericalModel) => {
+const solveDenseReference = (reducedK: SparseMatrixCSR, reducedF: Float64Array, numericalModel: NumericalModel, inactiveDofs: Set<number>, preparation: ContextPreparation) => {
   if (reducedK.n === 0) {
-    return { displacementsRaw: new Float64Array(numericalModel.totalDof), singularCount: 0, spd: true };
+    return { displacementsRaw: new Float64Array(numericalModel.totalDof), singularCount: 0, spd: true, reused: false };
   }
 
-  const denseK = csrToDense(reducedK);
-  const rhs = Array.from(reducedF);
-  const cholesky = solveDenseSpd(denseK, rhs);
-  if (cholesky) {
-    return { displacementsRaw: expandReducedDisplacements(Float64Array.from(cholesky), numericalModel), singularCount: 0, spd: true };
+  // Unloaded rotations disconnected by end releases do not describe physical motion.
+  // Keep all other zero rows so that genuine mechanisms are reported as singular.
+  const key = Array.from(inactiveDofs).sort((a, b) => a - b).join(',');
+  const reused = preparation.dense?.key === key;
+  if (!reused) {
+    const active = Int32Array.from(Array.from({ length: reducedK.n }, (_, index) => index).filter(index => !inactiveDofs.has(index)));
+    const matrix = csrToDense(extractCsrSubmatrix(reducedK, active));
+    const scale = matrix.map((row, index) => row[index] > 0 ? 1 / Math.sqrt(row[index]) : 1);
+    matrix.forEach((row, i) => row.forEach((_value, j) => { row[j] *= scale[i] * scale[j]; }));
+    preparation.dense = { key, active, matrix, scale, factor: factorDenseSpd(matrix) };
+    preparation.denseFactorizations++;
+  }
+  const { active, matrix: denseK, scale, factor } = preparation.dense!;
+  const rhs = Array.from(active, (index, offset) => reducedF[index] * scale[offset]);
+  const expand = (x: number[]) => {
+    const full = new Float64Array(reducedK.n);
+    active.forEach((index, offset) => { full[index] = x[offset] * scale[offset]; });
+    return expandReducedDisplacements(full, numericalModel);
+  };
+  if (factor) {
+    return { displacementsRaw: expand(solveDenseFactor(factor, rhs)), singularCount: 0, spd: true, reused };
   }
 
-  const { x } = solveLinearSystem(denseK, rhs);
-  let singularCount = 0;
-  for (let row = 0; row < denseK.length; row++) {
-    const rowAbs = denseK[row].reduce((sum, value) => sum + Math.abs(value), 0);
-    if (rowAbs <= 1e-14 && Math.abs(rhs[row]) > 1e-12) singularCount++;
-  }
-  return { displacementsRaw: expandReducedDisplacements(Float64Array.from(x), numericalModel), singularCount, spd: false };
-};
-
-const jsPcgAdapter: SpaceLinearSolverAdapter = {
-  id: 'js-csr-pcg',
-  canSolve: () => true,
-  solve: ({ matrix, rhs, options }) => pcgSolve(matrix, rhs, {
-    tolerance: options.tolerance,
-    maxIterations: options.maxIterations,
-    preconditioner: options.preconditioner ?? 'symmetric-diagonal',
-    trackResidualHistory: options.diagnostics === 'extended',
-  }),
+  const { x, singularCount } = solveLinearSystem(denseK, rhs);
+  return { displacementsRaw: expand(x), singularCount, spd: false, reused: false };
 };
 
 const wasmSparseAdapter: SpaceLinearSolverAdapter = {
@@ -921,49 +954,6 @@ const wasmSparseAdapter: SpaceLinearSolverAdapter = {
     converged: false,
     warnings: ['WASM sparse solver is not available in this build. Falling back to the JavaScript solver.'],
   }),
-};
-
-const buildElementStations = (cache: NonNullable<ReturnType<ElementCache['get']>>, localEndForces: number[]) => {
-  const stationCount = 11;
-  return Array.from({ length: stationCount }, (_, index) => {
-    const x = cache.length * index / (stationCount - 1);
-    const ratio = cache.length > 0 ? x / cache.length : 0;
-    if (cache.appliedLoads.length === 0) {
-      return {
-        x: cleanValue(x),
-        axial: cleanValue((1 - ratio) * localEndForces[0] + ratio * -localEndForces[6]),
-        shearY: cleanValue((1 - ratio) * localEndForces[1] + ratio * -localEndForces[7]),
-        shearZ: cleanValue((1 - ratio) * localEndForces[2] + ratio * -localEndForces[8]),
-        torsion: cleanValue((1 - ratio) * localEndForces[3] + ratio * -localEndForces[9]),
-        momentY: cleanValue((1 - ratio) * localEndForces[4] + ratio * -localEndForces[10]),
-        momentZ: cleanValue((1 - ratio) * localEndForces[5] + ratio * -localEndForces[11]),
-      };
-    }
-
-    let axialLoad = 0;
-    let shearYLoad = 0;
-    let shearZLoad = 0;
-    let momentZLoad = 0;
-    let momentYLoad = 0;
-
-    cache.appliedLoads.forEach(load => {
-      axialLoad += getLinearLoadIntegral(load.qStart[0], load.qEnd[0], cache.length, x);
-      shearYLoad += getLinearLoadIntegral(load.qStart[1], load.qEnd[1], cache.length, x);
-      shearZLoad += getLinearLoadIntegral(load.qStart[2], load.qEnd[2], cache.length, x);
-      momentZLoad += getLinearLoadMomentIntegral(load.qStart[1], load.qEnd[1], cache.length, x);
-      momentYLoad += getLinearLoadMomentIntegral(load.qStart[2], load.qEnd[2], cache.length, x);
-    });
-
-    return {
-      x: cleanValue(x),
-      axial: cleanValue(localEndForces[0] + axialLoad),
-      shearY: cleanValue(localEndForces[1] + shearYLoad),
-      shearZ: cleanValue(localEndForces[2] + shearZLoad),
-      torsion: cleanValue(localEndForces[3]),
-      momentY: cleanValue(localEndForces[4] - localEndForces[2] * x - momentYLoad),
-      momentZ: cleanValue(localEndForces[5] - localEndForces[1] * x - momentZLoad),
-    };
-  });
 };
 
 const dofLabels = ['ux', 'uy', 'uz', 'rx', 'ry', 'rz'];
@@ -1045,12 +1035,12 @@ const postprocessSpaceResult = (
   const reactionsRaw = Array.from(csrMatVec(globalK, displacementsRaw), (value, index) => value - numericalModel.loads[index]);
 
   const vectorToComponents = (vector: SpaceVector6) => ({
-    fx: cleanValue(vector[0]),
-    fy: cleanValue(vector[1]),
-    fz: cleanValue(vector[2]),
-    mx: cleanValue(vector[3]),
-    my: cleanValue(vector[4]),
-    mz: cleanValue(vector[5]),
+    fx: vector[0],
+    fy: vector[1],
+    fz: vector[2],
+    mx: vector[3],
+    my: vector[4],
+    mz: vector[5],
   });
 
   const getBaseDof = (nodeId: number) => {
@@ -1062,12 +1052,12 @@ const postprocessSpaceResult = (
     const base = getBaseDof(node.id);
     return {
       nodeId: node.id,
-      dx: cleanValue(displacementsRaw[base] * 1000),
-      dy: cleanValue(displacementsRaw[base + 1] * 1000),
-      dz: cleanValue(displacementsRaw[base + 2] * 1000),
-      rx: cleanValue(displacementsRaw[base + 3]),
-      ry: cleanValue(displacementsRaw[base + 4]),
-      rz: cleanValue(displacementsRaw[base + 5]),
+      dx: displacementsRaw[base] * 1000,
+      dy: displacementsRaw[base + 1] * 1000,
+      dz: displacementsRaw[base + 2] * 1000,
+      rx: displacementsRaw[base + 3],
+      ry: displacementsRaw[base + 4],
+      rz: displacementsRaw[base + 5],
     };
   });
 
@@ -1083,12 +1073,12 @@ const postprocessSpaceResult = (
 
     return [{
       nodeId: node.id,
-      fx: cleanValue(reactionsRaw[base] + springReaction[0]),
-      fy: cleanValue(reactionsRaw[base + 1] + springReaction[1]),
-      fz: cleanValue(reactionsRaw[base + 2] + springReaction[2]),
-      mx: cleanValue(reactionsRaw[base + 3] + springReaction[3]),
-      my: cleanValue(reactionsRaw[base + 4] + springReaction[4]),
-      mz: cleanValue(reactionsRaw[base + 5] + springReaction[5]),
+      fx: reactionsRaw[base] + springReaction[0],
+      fy: reactionsRaw[base + 1] + springReaction[1],
+      fz: reactionsRaw[base + 2] + springReaction[2],
+      mx: reactionsRaw[base + 3] + springReaction[3],
+      my: reactionsRaw[base + 4] + springReaction[4],
+      mz: reactionsRaw[base + 5] + springReaction[5],
     }];
   });
 
@@ -1133,14 +1123,25 @@ const postprocessSpaceResult = (
   });
   const residualVector = totalLoads.map((value, index) => value + totalReactions[index]) as SpaceVector6;
   const residualMaxAbs = Math.max(...residualVector.map(value => Math.abs(value)));
-  const solverFailed = stats.warnings.some(warning => (
-    warning.includes('did not converge') ||
-    warning.includes('stopped because') ||
-    warning.includes('奇异自由度') ||
-    warning.includes('近零自由度') ||
-    warning.includes('近零刚度自由度')
-  ));
-  const reliability: SpaceAnalysisStatus = residualMaxAbs >= 1e-5 || solverFailed
+  const forceResidual = Math.max(...residualVector.slice(0, 3).map(Math.abs));
+  const momentResidual = Math.max(...residualVector.slice(3).map(Math.abs));
+  let forceScale = 0;
+  let momentScale = 0;
+  for (const node of nodes) {
+    const base = getBaseDof(node.id);
+    const fx = numericalModel.loads[base];
+    const fy = numericalModel.loads[base + 1];
+    const fz = numericalModel.loads[base + 2];
+    forceScale += Math.abs(fx) + Math.abs(fy) + Math.abs(fz);
+    momentScale += Math.abs(numericalModel.loads[base + 3]) + Math.abs(numericalModel.loads[base + 4]) + Math.abs(numericalModel.loads[base + 5])
+      + Math.abs(node.y * fz) + Math.abs(node.z * fy) + Math.abs(node.z * fx)
+      + Math.abs(node.x * fz) + Math.abs(node.x * fy) + Math.abs(node.y * fx);
+  }
+  const forceTolerance = 1e-8 + 1e-8 * forceScale;
+  const momentTolerance = 1e-8 + 1e-8 * momentScale;
+  const equilibriumPassed = Number.isFinite(residualMaxAbs) && forceResidual <= forceTolerance && momentResidual <= momentTolerance;
+  const solverFailed = stats.solverDiagnostics?.converged === false;
+  const reliability: SpaceAnalysisStatus = !equilibriumPassed || solverFailed
     ? 'failed'
     : stats.solverDiagnostics?.fallbackUsed || stats.warnings.length > 0
       ? 'warning'
@@ -1149,15 +1150,19 @@ const postprocessSpaceResult = (
     totalLoads: vectorToComponents(totalLoads),
     totalReactions: vectorToComponents(totalReactions),
     residual: {
-      fx: cleanValue(residualVector[0]),
-      fy: cleanValue(residualVector[1]),
-      fz: cleanValue(residualVector[2]),
-      mx: cleanValue(residualVector[3]),
-      my: cleanValue(residualVector[4]),
-      mz: cleanValue(residualVector[5]),
-      maxAbs: cleanValue(residualMaxAbs),
+      fx: residualVector[0],
+      fy: residualVector[1],
+      fz: residualVector[2],
+      mx: residualVector[3],
+      my: residualVector[4],
+      mz: residualVector[5],
+      maxAbs: residualMaxAbs,
     },
-    passed: residualMaxAbs < 1e-5,
+    passed: equilibriumPassed,
+    forceResidual,
+    momentResidual,
+    forceTolerance,
+    momentTolerance,
     reliability,
   };
 
@@ -1175,7 +1180,20 @@ const postprocessSpaceResult = (
     );
     const localEndForces = multiplyMatrixVector12(cache.kLocal, localDisplacements);
     for (let index = 0; index < 12; index++) localEndForces[index] -= cache.rawEquivalentLoads[index];
-    const stations = buildElementStations(cache, localEndForces);
+    const qStart = [0, 0, 0];
+    const qEnd = [0, 0, 0];
+    cache.appliedLoads.forEach(load => load.qStart.forEach((value, axis) => {
+      qStart[axis] += value;
+      qEnd[axis] += load.qEnd[axis];
+    }));
+    const stations = buildSpaceForceStations(cache.length, localEndForces, qStart, qEnd);
+    const displacementCurve = buildSpaceDisplacementCurve(element, cache.length, localDisplacements, qStart, qEnd);
+    const start = nodes[nodeIndex.get(element.startNode)!];
+    const end = nodes[nodeIndex.get(element.endNode)!];
+    const startFixed = start.restraints.every(Boolean) && !element.releaseStart?.ry && !element.releaseStart?.rz;
+    const endFixed = end.restraints.every(Boolean) && !element.releaseEnd?.ry && !element.releaseEnd?.rz;
+    const reference = startFixed && !endFixed ? 'fixed-start' : endFixed && !startFixed ? 'fixed-end' : 'chord';
+    const transverseDeflection = getSpaceTransverseDeflection(displacementCurve, cache.length, reference);
     let maxAbsAxial = Math.max(Math.abs(localEndForces[0]), Math.abs(localEndForces[6]));
     let maxAbsShearY = Math.max(Math.abs(localEndForces[1]), Math.abs(localEndForces[7]));
     let maxAbsShearZ = Math.max(Math.abs(localEndForces[2]), Math.abs(localEndForces[8]));
@@ -1190,29 +1208,31 @@ const postprocessSpaceResult = (
     }
     const releaseForces = cache.releaseDofs.length > 0 ? {
       start: {
-        rx: cleanValue(cache.releaseDofs.includes(3) ? localEndForces[3] : 0),
-        ry: cleanValue(cache.releaseDofs.includes(4) ? localEndForces[4] : 0),
-        rz: cleanValue(cache.releaseDofs.includes(5) ? localEndForces[5] : 0),
+        rx: cache.releaseDofs.includes(3) ? localEndForces[3] : 0,
+        ry: cache.releaseDofs.includes(4) ? localEndForces[4] : 0,
+        rz: cache.releaseDofs.includes(5) ? localEndForces[5] : 0,
       },
       end: {
-        rx: cleanValue(cache.releaseDofs.includes(9) ? localEndForces[9] : 0),
-        ry: cleanValue(cache.releaseDofs.includes(10) ? localEndForces[10] : 0),
-        rz: cleanValue(cache.releaseDofs.includes(11) ? localEndForces[11] : 0),
+        rx: cache.releaseDofs.includes(9) ? localEndForces[9] : 0,
+        ry: cache.releaseDofs.includes(10) ? localEndForces[10] : 0,
+        rz: cache.releaseDofs.includes(11) ? localEndForces[11] : 0,
       },
     } : undefined;
     return [{
       elementId: element.id,
-      length: cleanValue(cache.length),
+      length: cache.length,
       localDisplacements: cleanVector(localDisplacements),
       localEndForces: cleanVector(localEndForces),
       releaseForces,
       stations,
-      maxAbsAxial: cleanValue(maxAbsAxial),
-      maxAbsShearY: cleanValue(maxAbsShearY),
-      maxAbsShearZ: cleanValue(maxAbsShearZ),
-      maxAbsTorsion: cleanValue(Math.max(Math.abs(localEndForces[3]), Math.abs(localEndForces[9]))),
-      maxAbsMomentY: cleanValue(maxAbsMomentY),
-      maxAbsMomentZ: cleanValue(maxAbsMomentZ),
+      displacementCurve,
+      transverseDeflection,
+      maxAbsAxial: maxAbsAxial,
+      maxAbsShearY: maxAbsShearY,
+      maxAbsShearZ: maxAbsShearZ,
+      maxAbsTorsion: Math.max(Math.abs(localEndForces[3]), Math.abs(localEndForces[9])),
+      maxAbsMomentY: maxAbsMomentY,
+      maxAbsMomentZ: maxAbsMomentZ,
     }];
   });
 
@@ -1225,7 +1245,7 @@ const postprocessSpaceResult = (
     elements: resultElements,
     displacements,
     reactions,
-    maxDisplacement: cleanValue(maxDisplacement),
+    maxDisplacement: maxDisplacement,
     equilibrium,
     error,
     stats,
@@ -1258,8 +1278,25 @@ export const solvePreparedSpaceFrame = (
     matrix: context.reducedK,
     rhs: buildReducedRhs(numericalModel),
   };
-  const matrixDiagnostics = analyzeCsrMatrix(reducedSystem.matrix, { estimateCondition: options.diagnostics === 'extended' });
-  const assemblyMs = context.stiffnessAssemblyMs + (now() - loadStartMs);
+  let preparation = contextPreparations.get(context);
+  if (!preparation) {
+    preparation = {
+      diagnostics: new Map(), pcg: new Map(),
+      floating: findUnrestrainedSpaceComponents(context.nodes, context.elements),
+      zeroDofs: findNearZeroReducedDofs(reducedSystem.matrix, numericalModel.freeDof),
+      matrixDiagnosticsBuilds: 0, denseFactorizations: 0, preconditionerBuilds: 0, solves: 0,
+    };
+    contextPreparations.set(context, preparation);
+  }
+  const diagnosticsMode = options.diagnostics ?? 'basic';
+  const diagnosticsReused = preparation.diagnostics.has(diagnosticsMode);
+  if (!diagnosticsReused) {
+    preparation.diagnostics.set(diagnosticsMode, analyzeCsrMatrix(reducedSystem.matrix, { estimateSpectralRadius: diagnosticsMode === 'extended' }));
+    preparation.matrixDiagnosticsBuilds++;
+  }
+  const matrixDiagnostics = { ...preparation.diagnostics.get(diagnosticsMode)! };
+  const stiffnessReused = preparation.solves > 0;
+  const assemblyMs = (stiffnessReused ? 0 : context.stiffnessAssemblyMs) + (now() - loadStartMs);
 
   const solveStartMs = now();
   const warnings: string[] = [
@@ -1272,33 +1309,69 @@ export const solvePreparedSpaceFrame = (
   let residualHistory: number[] | undefined;
   let fallbackUsed = false;
   let actualBackend: SpaceSolverActualBackend = backend;
+  let converged = true;
+  let reason: SpaceSolveReason = 'converged';
+  let denseFactorReused = false;
+  let preconditionerReused = false;
+  const floating = preparation.floating;
+  if (floating.length > 0) {
+    converged = false;
+    reason = 'unconstrained';
+    for (const component of floating) warnings.push(`节点 ${component.nodeIds.slice(0, 6).join('、')} 所在连通结构缺少 ${component.missingModes} 个刚体约束，请检查支座。`);
+  }
+  const zeroDofs = preparation.zeroDofs;
+  const inactiveDofs = new Set<number>();
+  for (const dof of zeroDofs) {
+    const index = numericalModel.freeDof.indexOf(dof);
+    if (!shouldReportUnloadedMechanismDof(context.nodes, context.elements, dof) && Math.abs(reducedSystem.rhs[index]) <= 1e-12) {
+      inactiveDofs.add(index);
+    } else {
+      converged = false;
+      reason = 'unconstrained';
+    }
+  }
 
   if (requestedBackend === 'wasm-sparse') {
-    actualBackend = wasmSparseAdapter.id;
+    fallbackUsed = true;
     warnings.push(...wasmSparseAdapter.solve({ matrix: reducedSystem.matrix, rhs: reducedSystem.rhs, options }).warnings);
   }
 
   if (backend === 'dense-reference') {
-    const dense = solveDenseReference(reducedSystem.matrix, reducedSystem.rhs, numericalModel);
+    const dense = solveDenseReference(reducedSystem.matrix, reducedSystem.rhs, numericalModel, inactiveDofs, preparation);
+    denseFactorReused = dense.reused;
     displacementsRaw = dense.displacementsRaw;
     singularCount = dense.singularCount;
+    if (!dense.spd) { converged = false; reason = dense.singularCount > 0 ? 'singular' : 'non-positive-curvature'; }
     if (!dense.spd && dense.singularCount > 0) warnings.push('Dense reference solver detected a non-SPD or singular reduced matrix and used guarded Gaussian fallback.');
   } else {
-    const sparse = jsPcgAdapter.solve({ matrix: reducedSystem.matrix, rhs: reducedSystem.rhs, options: { ...options, preconditioner } });
+    preconditionerReused = preparation.pcg.has(preconditioner);
+    if (!preconditionerReused) {
+      preparation.pcg.set(preconditioner, preparePcgSolver(reducedSystem.matrix, preconditioner));
+      preparation.preconditionerBuilds++;
+    }
+    const sparse = preparation.pcg.get(preconditioner)!.solve(reducedSystem.rhs, {
+      tolerance: options.tolerance, maxIterations: options.maxIterations,
+      trackResidualHistory: options.diagnostics === 'extended',
+    });
     displacementsRaw = expandReducedDisplacements(sparse.x, numericalModel);
     iterations = sparse.iterations;
     relativeResidual = sparse.relativeResidual;
     residualHistory = sparse.residualHistory;
+    if (!sparse.converged) { converged = false; reason = sparse.reason ?? 'true-residual'; }
     warnings.push(...sparse.warnings);
 
     const shouldFallback = !sparse.converged
       && numericalModel.freeDof.length <= 1200
       && (options.fallback ?? 'auto') !== 'none';
     if (shouldFallback) {
-      const dense = solveDenseReference(reducedSystem.matrix, reducedSystem.rhs, numericalModel);
+      const dense = solveDenseReference(reducedSystem.matrix, reducedSystem.rhs, numericalModel, inactiveDofs, preparation);
+      denseFactorReused = dense.reused;
       displacementsRaw = dense.displacementsRaw;
       singularCount = dense.singularCount;
       fallbackUsed = true;
+      actualBackend = 'dense-reference';
+      converged = dense.spd && floating.length === 0 && zeroDofs.every(dof => inactiveDofs.has(numericalModel.freeDof.indexOf(dof)));
+      reason = dense.spd ? converged ? 'converged' : 'unconstrained' : dense.singularCount > 0 ? 'singular' : 'non-positive-curvature';
       warnings.push('PCG 未收敛，已对小型自由度系统自动降级到 dense reference 求解结果。');
       if (!dense.spd && dense.singularCount > 0) warnings.push('Dense fallback detected a non-SPD or singular reduced matrix and used guarded Gaussian fallback.');
     }
@@ -1309,10 +1382,25 @@ export const solvePreparedSpaceFrame = (
     warnings.push(`空间刚度矩阵存在 ${singularCount} 个近似奇异自由度，结果可能包含未约束机构。`);
   }
 
+  const reducedX = Float64Array.from(numericalModel.freeDof, dof => displacementsRaw[dof]);
+  const finalResidual = csrMatVec(reducedSystem.matrix, reducedX);
+  let residualSquared = 0;
+  let loadSquared = 0;
+  for (let index = 0; index < finalResidual.length; index++) {
+    residualSquared += (reducedSystem.rhs[index] - finalResidual[index]) ** 2;
+    loadSquared += reducedSystem.rhs[index] ** 2;
+  }
+  relativeResidual = loadSquared === 0 ? Math.sqrt(residualSquared) : Math.sqrt(residualSquared / loadSquared);
+  if (!Number.isFinite(relativeResidual) || relativeResidual > Math.max(options.tolerance ?? 1e-8, 100 * Number.EPSILON)) {
+    if (converged) reason = Number.isFinite(relativeResidual) ? 'true-residual' : 'non-finite';
+    converged = false;
+    warnings.push('最终求解结果的原始系统真实残差未达到容差。');
+  }
+
   const error = warnings.length > 0 ? warnings.join(' ') : undefined;
   const postprocessStartMs = now();
   const stats: SolverStats = {
-    backend,
+    backend: actualBackend,
     totalDof: numericalModel.totalDof,
     freeDof: numericalModel.freeDof.length,
     nnz: context.globalK.values.length,
@@ -1322,12 +1410,20 @@ export const solvePreparedSpaceFrame = (
     iterations,
     relativeResidual,
     warnings,
+    preparation: {
+      stiffnessReused, diagnosticsReused, denseFactorReused, preconditionerReused,
+      stiffnessAssemblies: 1, matrixDiagnosticsBuilds: preparation.matrixDiagnosticsBuilds,
+      denseFactorizations: preparation.denseFactorizations, preconditionerBuilds: preparation.preconditionerBuilds,
+      solves: ++preparation.solves,
+    },
     matrixDiagnostics,
     solverDiagnostics: {
       requestedBackend,
       actualBackend,
       preconditioner,
       fallbackUsed,
+      converged,
+      reason,
       residualHistory,
     },
   };

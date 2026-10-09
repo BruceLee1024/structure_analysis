@@ -49,11 +49,12 @@ const ActivationModal: React.FC<ActivationModalProps> = ({ isOpen, onClose, onAc
       onClick={onClose}
     >
       <div 
-        className="relative bg-gradient-to-br from-slate-800 to-slate-900 rounded-3xl p-8 border border-slate-700/50 shadow-2xl shadow-indigo-500/10 max-w-md w-full mx-4"
+        role="dialog" aria-modal="true" aria-label="激活结构求解器" className="app-modal relative bg-slate-900 rounded-2xl p-8 border border-slate-700/50 shadow-2xl shadow-indigo-500/10 max-w-md w-full mx-4"
         onClick={(e) => e.stopPropagation()}
       >
         {/* 关闭按钮 */}
         <button
+          aria-label="关闭激活窗口"
           onClick={onClose}
           className="absolute top-4 right-4 w-8 h-8 rounded-full bg-slate-700/50 hover:bg-slate-600/50 flex items-center justify-center text-slate-400 hover:text-white transition-colors"
         >

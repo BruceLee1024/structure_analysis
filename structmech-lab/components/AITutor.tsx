@@ -1,10 +1,14 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Send, Bot, RefreshCw, Lightbulb } from 'lucide-react';
+import { ArrowUpRight, Send, RefreshCw, Lightbulb, LoaderCircle, MessageSquare } from 'lucide-react';
 import { sendChatCompletion } from '../utils/aiClient';
+import { getAIModel } from '../utils/aiModels';
 
 interface Message {
   role: 'assistant' | 'user';
   content: string;
+  reasoning_content?: string;
+  reasoning_model?: string;
+  kind?: 'welcome';
 }
 
 interface AITutorProps {
@@ -18,35 +22,38 @@ const AITutor: React.FC<AITutorProps> = ({ context, moduleTitle, suggestedQuesti
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [isConnected, setIsConnected] = useState(false);
-  const messagesEndRef = useRef<HTMLDivElement>(null);
-
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  };
+  const [hasError, setHasError] = useState(false);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    scrollToBottom();
+    // Scroll only the conversation; a collapsed assistant must not move the workspace.
+    const container = messagesContainerRef.current;
+    if (container) container.scrollTop = container.scrollHeight;
   }, [messages]);
 
   // 初始化欢迎消息
   useEffect(() => {
     const welcomeMessage = getWelcomeMessage(moduleTitle);
-    setMessages([{ role: 'assistant', content: welcomeMessage }]);
+    setMessages([{ role: 'assistant', content: welcomeMessage, kind: 'welcome' }]);
   }, [moduleTitle]);
 
   const getWelcomeMessage = (title: string): string => {
     const welcomes: Record<string, string> = {
-      '几何组成分析': '👋 欢迎来到几何组成分析模块！\n\n这是结构力学的基础。我们需要先判断一个结构是否能够承受荷载。\n\n🤔 思考题：为什么自由度 W=0 是结构稳定的必要条件，但不是充分条件？',
-      '静定梁': '👋 欢迎学习静定梁！\n\n梁是最基本的结构构件。试着调整荷载位置，观察反力和弯矩的变化。\n\n🤔 关键问题：简支梁上集中力作用点的弯矩最大，为什么？',
-      '静定刚架': '👋 欢迎来到静定刚架模块！\n\n刚架与梁的区别在于节点是刚性连接的。\n\n🤔 思考：三铰刚架顶部铰处弯矩为零，这个条件如何帮助我们求解？',
-      '静定桁架': '👋 欢迎学习静定桁架！\n\n桁架的特点是所有杆件只承受轴力。\n\n🤔 问题：为什么桁架杆件没有弯矩？这与节点的连接方式有什么关系？',
-      '静定拱': '👋 欢迎来到静定拱模块！\n\n拱是一种非常高效的结构形式。观察水平推力如何减小弯矩。\n\n🤔 思考：为什么说"拱的合理轴线"能使弯矩为零？',
-      '组合结构': '👋 欢迎学习组合结构！\n\n组合结构由不同类型的结构组合而成。\n\n🤔 关键：分析组合结构时，应该按什么顺序进行？',
+      '几何组成分析': '从约束与自由度入手，判断体系是否稳定。W = 0 是必要条件，还需要检查约束的布置。',
+      '静定梁': '调整荷载位置，观察支座反力、剪力和弯矩的变化。可以从整体平衡开始推导。',
+      '静定刚架': '沿梁柱连接梳理传力路径，再用整体平衡与截面平衡解释内力分布。',
+      '静定桁架': '铰接杆件主要承受轴力。结合节点法与截面法，判断各杆件的拉压状态。',
+      '静定拱': '观察水平推力如何改变内力分布，理解合理拱轴线与荷载的关系。',
+      '组合结构': '先识别基本部分与附属部分，再按传力顺序分析各部分的受力。',
+      '静力法作影响线': '沿梁移动单位荷载，用平衡方程观察反力和截面内力如何变化。',
+      '机动法作影响线': '解除相应约束，借助虚位移和虚功原理理解影响线的形状。',
+      '内力包络图': '观察移动荷载的不同位置，找到各截面的控制内力与最不利位置。',
+      '影响线应用': '将荷载与影响线纵标对应起来，分析集中力、均布荷载和荷载组的作用。',
     };
-    return welcomes[title] || `👋 欢迎来到${title}模块！有什么问题可以问我。`;
+    return welcomes[title] || '结合当前图表与计算结果，逐步理解受力关系。可以选择一个问题开始，或直接描述你的疑问。';
   };
 
-  const callAIAPI = async (userMessage: string): Promise<string> => {
+  const callAIAPI = async (userMessage: string): Promise<Message> => {
     const systemPrompt = `你是一位经验丰富的结构力学教师，名叫"结构力学助教"。你的教学风格是：
 1. 启发式教学：不直接给答案，而是通过提问引导学生思考
 2. 循序渐进：从简单概念开始，逐步深入
@@ -63,23 +70,29 @@ const AITutor: React.FC<AITutorProps> = ({ context, moduleTitle, suggestedQuesti
 - 如果学生问的问题与当前模块相关，结合页面上的具体数值来解释`;
 
     try {
-      setIsConnected(true);
+      const model = getAIModel();
+      let reasoning: string | undefined;
       const response = await sendChatCompletion(
         [
           { role: 'system', content: systemPrompt },
-          ...messages.map(m => ({ role: m.role, content: m.content })),
+          ...messages.map(m => ({ role: m.role, content: m.content,
+            ...(m.reasoning_model === model.model && m.reasoning_content ? { reasoning_content: m.reasoning_content } : {}),
+          })),
           { role: 'user', content: userMessage },
         ],
-        { maxTokens: 300, temperature: 0.7 },
+        { maxTokens: 300, temperature: 0.7, onReasoning: value => { reasoning = value; } },
       );
-      return response || '抱歉，我没有理解你的问题。';
+      setIsConnected(true);
+      setHasError(false);
+      return { role: 'assistant', content: response, reasoning_content: reasoning, reasoning_model: model.model };
     } catch (error) {
       console.error('AI API error:', error);
       setIsConnected(false);
+      setHasError(true);
       if (error instanceof Error && error.message === '未配置 API Key') {
-        return '⚠️ 未配置 API Key。请点击左侧"设置"按钮配置 AI 模型和 API Key。';
+        return { role: 'assistant', content: '尚未配置模型。请打开顶部「AI 模型设置」，填写 API Key 后再提问。' };
       }
-      return '⚠️ 连接失败，请检查网络或API配置。';
+      return { role: 'assistant', content: '暂时未能获取回复。请检查网络和模型配置后重试。' };
     }
   };
 
@@ -90,9 +103,10 @@ const AITutor: React.FC<AITutorProps> = ({ context, moduleTitle, suggestedQuesti
     setInput('');
     setMessages(prev => [...prev, { role: 'user', content: message }]);
     setIsLoading(true);
+    setHasError(false);
 
     const response = await callAIAPI(message);
-    setMessages(prev => [...prev, { role: 'assistant', content: response }]);
+    setMessages(prev => [...prev, response]);
     setIsLoading(false);
   };
 
@@ -102,99 +116,50 @@ const AITutor: React.FC<AITutorProps> = ({ context, moduleTitle, suggestedQuesti
 
   const handleReset = () => {
     const welcomeMessage = getWelcomeMessage(moduleTitle);
-    setMessages([{ role: 'assistant', content: welcomeMessage }]);
+    setMessages([{ role: 'assistant', content: welcomeMessage, kind: 'welcome' }]);
+    setInput('');
+    setHasError(false);
   };
 
+  const connectionLabel = isLoading ? '回复中' : hasError ? '连接失败' : isConnected ? '已连接' : '待提问';
+  const showSuggestions = messages.length === 1 && messages[0].kind === 'welcome';
+
   return (
-    <div className="flex flex-col h-full bg-white rounded-2xl border border-slate-200 shadow-lg overflow-hidden">
-      {/* Header */}
-      <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 bg-gradient-to-r from-blue-50 to-indigo-50">
-        <div className="flex items-center gap-3">
-          <div className="bg-blue-600 p-2 rounded-xl text-white shadow-md">
-            <Bot size={20} />
-          </div>
-          <span className="font-bold text-base text-slate-800">AI 助教</span>
+    <section className="ai-tutor" aria-label={`${moduleTitle} AI 助教`}>
+      <header className="ai-tutor-header">
+        <div className="ai-tutor-heading"><h3>AI 助教</h3><span>{moduleTitle} · 学习辅助</span></div>
+        <div className="ai-tutor-tools">
+          <span className={`ai-tutor-connection ${hasError ? 'is-error' : isConnected ? 'is-connected' : ''}`} role="status"><i aria-hidden="true" />{connectionLabel}</span>
+          <button type="button" onClick={handleReset} disabled={isLoading} className="ai-tutor-reset" title="重新开始对话" aria-label="重新开始对话"><RefreshCw size={14} aria-hidden="true" /></button>
         </div>
-        <div className="flex items-center gap-3">
-          <span className={`text-xs px-3 py-1 rounded-full font-medium ${isConnected ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-500'}`}>
-            {isConnected ? '已连接' : '待连接'}
-          </span>
-          <button onClick={handleReset} className="p-2 hover:bg-white/60 rounded-lg transition-colors" title="重置对话">
-            <RefreshCw size={16} className="text-slate-500" />
-          </button>
-        </div>
-      </div>
+      </header>
 
-      {/* Messages */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-4">
-        {messages.map((msg, idx) => (
-          <div key={idx} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-            <div className={`max-w-[90%] px-4 py-3 rounded-2xl text-sm leading-relaxed whitespace-pre-wrap shadow-sm ${
-              msg.role === 'user' 
-                ? 'bg-blue-600 text-white rounded-br-md' 
-                : 'bg-slate-100 text-slate-700 rounded-bl-md'
-            }`}>
-              {msg.content}
-            </div>
+      <div ref={messagesContainerRef} role="log" aria-label="AI 助教对话" className="ai-tutor-conversation" aria-busy={isLoading}>
+        {messages.map((msg, idx) => msg.kind === 'welcome' ? (
+          <div key={idx} className="ai-tutor-start">
+            <div className="ai-tutor-intro"><span className="ai-tutor-intro-label"><MessageSquare size={13} aria-hidden="true" />学习提示</span><p>{msg.content}</p></div>
+            {showSuggestions && suggestedQuestions.length > 0 && <div className="ai-tutor-suggestions">
+              <div className="ai-tutor-suggestion-label"><Lightbulb size={13} aria-hidden="true" />从这些问题开始</div>
+              {suggestedQuestions.map(question => <button key={question} type="button" onClick={() => handleSuggestedQuestion(question)} disabled={isLoading}><span>{question}</span><ArrowUpRight size={13} aria-hidden="true" /></button>)}
+            </div>}
           </div>
+        ) : (
+          <article key={idx} className={`ai-tutor-message ${msg.role === 'user' ? 'is-user' : 'is-assistant'}`}>
+            <span className="ai-tutor-message-label">{msg.role === 'user' ? '你' : 'AI 助教'}</span><div>{msg.content}</div>
+          </article>
         ))}
-        {isLoading && (
-          <div className="flex justify-start">
-            <div className="bg-slate-100 px-4 py-3 rounded-2xl rounded-bl-md shadow-sm">
-              <div className="flex gap-1.5">
-                <span className="w-2 h-2 bg-slate-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></span>
-                <span className="w-2 h-2 bg-slate-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></span>
-                <span className="w-2 h-2 bg-slate-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></span>
-              </div>
-            </div>
-          </div>
-        )}
-        <div ref={messagesEndRef} />
+        {isLoading && <div className="ai-tutor-thinking" role="status"><LoaderCircle size={14} aria-hidden="true" />正在结合当前结构分析…</div>}
       </div>
 
-      {/* Suggested Questions */}
-      {suggestedQuestions.length > 0 && messages.length <= 2 && (
-        <div className="px-4 pb-3">
-          <div className="flex items-center gap-2 mb-2">
-            <Lightbulb size={14} className="text-amber-500" />
-            <span className="text-xs text-slate-500 font-medium">试试问这些：</span>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            {suggestedQuestions.map((q, idx) => (
-              <button
-                key={idx}
-                onClick={() => handleSuggestedQuestion(q)}
-                className="text-xs px-3 py-1.5 bg-blue-50 text-blue-600 rounded-full hover:bg-blue-100 transition-colors font-medium"
-              >
-                {q}
-              </button>
-            ))}
-          </div>
+      <form className="ai-tutor-composer" onSubmit={e => { e.preventDefault(); void handleSend(); }}>
+        <div className="ai-tutor-input-box">
+          <textarea value={input} onChange={e => setInput(e.target.value)} rows={3} aria-label="向 AI 助教提问" placeholder="输入你的问题..." disabled={isLoading}
+            onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing && e.keyCode !== 229) { e.preventDefault(); void handleSend(); } }} />
+          <div className="ai-tutor-input-actions"><span>Enter 发送 · Shift + Enter 换行</span><button type="submit" aria-label="发送消息" disabled={isLoading || !input.trim()}>{isLoading ? <LoaderCircle size={15} aria-hidden="true" /> : <Send size={15} aria-hidden="true" />}</button></div>
         </div>
-      )}
-
-      {/* Input */}
-      <div className="p-4 border-t border-slate-100 bg-slate-50/50">
-        <div className="flex gap-3">
-          <input
-            type="text"
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && handleSend()}
-            placeholder="输入你的问题..."
-            className="flex-1 px-4 py-2.5 text-sm border border-slate-200 rounded-xl focus:outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100 transition-all"
-            disabled={isLoading}
-          />
-          <button
-            onClick={() => handleSend()}
-            disabled={isLoading || !input.trim()}
-            className="px-4 py-2.5 bg-blue-600 text-white rounded-xl hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-md hover:shadow-lg"
-          >
-            <Send size={16} />
-          </button>
-        </div>
-      </div>
-    </div>
+        <p className="ai-tutor-footnote">可以询问受力、公式和求解步骤。</p>
+      </form>
+    </section>
   );
 };
 

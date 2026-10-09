@@ -1,3 +1,4 @@
+import { getLineLoadRange, isValidLineLoadRange } from '../../utils/lineLoads';
 import React, { useCallback, useMemo, useState } from 'react';
 import { Check, Plus, Trash2, X as XIcon } from 'lucide-react';
 import type { AgentAction, AgentParseResult } from '@/utils/agent/types';
@@ -26,6 +27,8 @@ interface EditLoad {
   direction: 'x' | 'y';
   elementId: number;
   location: number;
+  startLocation?: number;
+  endLocation?: number;
 }
 
 interface VisionResultEditorProps {
@@ -75,7 +78,9 @@ function toEditLoads(raw: unknown[]): EditLoad[] {
     magnitude: Number(l.magnitude) || 0,
     direction: (l.direction === 'x' ? 'x' : 'y') as 'x' | 'y',
     elementId: Number(l.elementId) || 1,
-    location: Number(l.location) || 0.5,
+    location: Number(l.location ?? 0.5),
+    startLocation: l.startLocation,
+    endLocation: l.endLocation,
   }));
 }
 
@@ -177,11 +182,23 @@ const SVGPreview: React.FC<{ nodes: EditNode[]; elements: EditElement[]; loads: 
         const dy = isDown ? 20 : isUp ? -20 : 0;
         const dx = l.direction === 'x' ? (l.magnitude > 0 ? 20 : -20) : 0;
         if (l.type === 'distributed') {
+          if (!isValidLineLoadRange(l)) return null;
+          const range = getLineLoadRange(l);
+          const startX = tx(sn.x + (en.x - sn.x) * range.start);
+          const startY = ty(sn.y + (en.y - sn.y) * range.start);
+          const endX = tx(sn.x + (en.x - sn.x) * range.end);
+          const endY = ty(sn.y + (en.y - sn.y) * range.end);
+          const offsetX = l.direction === 'x' ? (l.magnitude > 0 ? -20 : 20) : 0;
+          const offsetY = l.direction === 'y' ? (l.magnitude > 0 ? 20 : -20) : 0;
           return (
-            <g key={`load-${i}`}>
-              <rect x={tx(sn.x)} y={ty(sn.y) - (l.magnitude < 0 ? 0 : 15)} width={tx(en.x) - tx(sn.x)} height={15}
-                fill="rgba(239,68,68,0.2)" stroke="#ef4444" strokeWidth={0.5} />
-              <text x={(tx(sn.x) + tx(en.x)) / 2} y={ty(sn.y) - (l.magnitude < 0 ? -12 : 22)} textAnchor="middle"
+            <g key={`load-${i}`} data-line-load-range={`${range.start}-${range.end}`}>
+              {Array.from({ length: 9 }, (_, k) => {
+                const x = startX + (endX - startX) * k / 8;
+                const y = startY + (endY - startY) * k / 8;
+                return <line key={k} x1={x + offsetX} y1={y + offsetY} x2={x} y2={y} stroke="#ef4444" strokeWidth={1} markerEnd="url(#arrowhead)" />;
+              })}
+              <line x1={startX + offsetX} y1={startY + offsetY} x2={endX + offsetX} y2={endY + offsetY} stroke="#ef4444" />
+              <text x={(startX + endX) / 2} y={(startY + endY) / 2 - 25} textAnchor="middle"
                 fill="#fca5a5" fontSize={8}>{Math.abs(l.magnitude)}kN/m</text>
             </g>
           );
@@ -306,6 +323,7 @@ const VisionResultEditor: React.FC<VisionResultEditorProps> = ({ parsed, onConfi
         loads: loads.map(l => ({
           type: l.type, magnitude: l.magnitude, direction: l.direction,
           elementId: l.elementId, location: l.location,
+          ...(l.type === 'distributed' ? { startLocation: l.startLocation, endLocation: l.endLocation } : {}),
         })),
       },
     };
@@ -319,7 +337,13 @@ const VisionResultEditor: React.FC<VisionResultEditorProps> = ({ parsed, onConfi
   const nodeIds = new Set(nodes.map(n => n.id));
   const invalidElements = elements.filter(e => !nodeIds.has(e.startNode) || !nodeIds.has(e.endNode));
   const elemIds = new Set(elements.map(e => e.id));
-  const invalidLoads = loads.filter(l => !elemIds.has(l.elementId));
+  const invalidLoads = loads.filter(l => !elemIds.has(l.elementId) || (l.type === 'distributed' && !isValidLineLoadRange(l)));
+  const elementLength = (id: number) => {
+    const el = elements.find(e => e.id === id);
+    const start = nodes.find(n => n.id === el?.startNode);
+    const end = nodes.find(n => n.id === el?.endNode);
+    return start && end ? Math.hypot(end.x - start.x, end.y - start.y) : 0;
+  };
 
   const tabClass = (tab: string) =>
     `px-3 py-1 text-[11px] font-semibold rounded-t-lg transition-colors ${
@@ -480,7 +504,7 @@ const VisionResultEditor: React.FC<VisionResultEditorProps> = ({ parsed, onConfi
               <tr className="text-left text-slate-400">
                 <th className="px-1 py-1">类型</th>
                 <th className="px-1 py-1">单元</th>
-                <th className="px-1 py-1">位置</th>
+                <th className="px-1 py-1">位置 / 范围 (m)</th>
                 <th className="px-1 py-1">大小</th>
                 <th className="px-1 py-1">方向</th>
                 <th className="w-8 px-1 py-1" />
@@ -508,9 +532,16 @@ const VisionResultEditor: React.FC<VisionResultEditorProps> = ({ parsed, onConfi
                     </td>
                     <td className="px-1 py-0.5">
                       {l.type !== 'distributed' ? (
-                        <input type="number" step="0.0001" min="0" max="1" value={l.location} className={inputClass}
-                          onChange={e => updateLoad(l.id, 'location', parseFloat(e.target.value) || 0)} />
-                      ) : <span className="text-slate-500">全跨</span>}
+                        <input type="number" step="0.0001" min="0" max={elementLength(l.elementId)} value={Number((l.location * elementLength(l.elementId)).toFixed(6))} className={inputClass}
+                          onChange={e => updateLoad(l.id, 'location', Number(e.target.value) / elementLength(l.elementId))} />
+                      ) : <div className="flex gap-1 items-center">
+                        {(['startLocation', 'endLocation'] as const).map((field, index) => (
+                          <input key={field} type="number" step="0.01" min="0" max={elementLength(l.elementId)}
+                            aria-label={`识别荷载 ${l.id} ${index === 0 ? '起点' : '终点'} (m)`}
+                            value={Number(((index === 0 ? getLineLoadRange(l).start : getLineLoadRange(l).end) * elementLength(l.elementId)).toFixed(6))}
+                            className={inputClass} onChange={e => updateLoad(l.id, field, Number(e.target.value) / elementLength(l.elementId))} />
+                        ))}
+                      </div>}
                     </td>
                     <td className="px-1 py-0.5">
                       <input type="number" step="0.0001" value={l.magnitude} className={inputClass}
@@ -554,14 +585,14 @@ const VisionResultEditor: React.FC<VisionResultEditorProps> = ({ parsed, onConfi
       )}
       {invalidLoads.length > 0 && (
         <p className="mt-0.5 text-[10px] text-red-400">
-          ⚠ {invalidLoads.length} 个荷载引用了不存在的单元
+          ⚠ {invalidLoads.length} 个荷载引用了不存在的单元或作用范围无效
         </p>
       )}
 
       {/* Actions */}
       <div className="mt-3 flex gap-2">
         <button type="button" onClick={handleConfirm}
-          disabled={nodes.length < 2 || elements.length < 1 || invalidElements.length > 0}
+          disabled={nodes.length < 2 || elements.length < 1 || invalidElements.length > 0 || invalidLoads.length > 0}
           className="flex items-center gap-1.5 rounded-xl bg-sky-500 px-4 py-1.5 text-xs font-semibold text-white shadow hover:bg-sky-400 disabled:opacity-40">
           <Check size={14} />
           确认应用

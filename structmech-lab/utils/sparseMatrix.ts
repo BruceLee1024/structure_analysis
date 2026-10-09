@@ -19,6 +19,7 @@ export interface PcgResult {
   iterations: number;
   relativeResidual: number;
   converged: boolean;
+  reason?: 'converged' | 'iteration-limit' | 'non-positive-curvature' | 'non-finite' | 'true-residual';
   warnings: string[];
   residualHistory?: number[];
 }
@@ -29,7 +30,7 @@ export interface CsrMatrixDiagnostics {
   negativeDiagonalCount: number;
   nearZeroRowCount: number;
   diagonalRatio?: number;
-  estimatedCondition?: number;
+  estimatedScaledSpectralRadius?: number;
   spdLikely: boolean;
 }
 
@@ -141,13 +142,70 @@ export function extractCsrSubmatrix(matrix: SparseMatrixCSR, indices: Int32Array
 }
 
 export function pcgSolve(matrix: SparseMatrixCSR, b: Float64Array, options: PcgOptions = {}): PcgResult {
-  if (options.preconditioner === 'symmetric-diagonal') {
-    return pcgSolveSymmetricDiagonal(matrix, b, options);
-  }
-  return pcgSolveCore(matrix, b, options);
+  return preparePcgSolver(matrix, options.preconditioner ?? 'jacobi').solve(b, options);
 }
 
-export function analyzeCsrMatrix(matrix: SparseMatrixCSR, options: { estimateCondition?: boolean } = {}): CsrMatrixDiagnostics {
+export interface PreparedPcgSolver {
+  solve(b: Float64Array, options?: Omit<PcgOptions, 'preconditioner'>): PcgResult;
+}
+
+function extractDiagonal(matrix: SparseMatrixCSR) {
+  const diagonal = new Float64Array(matrix.n);
+  for (let row = 0; row < matrix.n; row++) {
+    for (let index = matrix.rowPtr[row]; index < matrix.rowPtr[row + 1]; index++) {
+      if (matrix.colIdx[index] === row) diagonal[row] = matrix.values[index];
+    }
+  }
+  return diagonal;
+}
+
+/** Prepared data belongs to one immutable matrix; right-hand sides stay independent. */
+export function preparePcgSolver(matrix: SparseMatrixCSR, preconditioner: SparsePreconditioner = 'jacobi'): PreparedPcgSolver {
+  const diagonal = extractDiagonal(matrix);
+  const scale = preconditioner === 'symmetric-diagonal'
+    ? Float64Array.from(diagonal, value => value > 1e-20 && Number.isFinite(value) ? 1 / Math.sqrt(value) : 1)
+    : undefined;
+  const solveMatrix = scale ? scaleCsrSymmetricDiagonal(matrix, scale) : matrix;
+  const solveDiagonal = scale ? extractDiagonal(solveMatrix) : diagonal;
+  return { solve(b, options = {}) {
+    const rhs = scale ? Float64Array.from(b, (value, index) => value * scale[index]) : b;
+    // In scaled coordinates r_s = S r. Judge progress in the original system.
+    const originalNorm = vectorNorm(b);
+    const relativeNorm = (residual: Float64Array) => {
+      let squared = 0;
+      for (let index = 0; index < residual.length; index++) squared += (residual[index] / (scale?.[index] ?? 1)) ** 2;
+      return Math.sqrt(squared) / (originalNorm || 1);
+    };
+    const trueResidual = (candidate: Float64Array) => {
+      const originalX = scale ? Float64Array.from(candidate, (value, index) => value * scale[index]) : candidate;
+      const residual = csrMatVec(matrix, originalX);
+      for (let index = 0; index < b.length; index++) residual[index] = (b[index] - residual[index]) * (scale?.[index] ?? 1);
+      return residual;
+    };
+    const result = pcgSolveCore(solveMatrix, rhs, { ...options, preconditioner: scale ? 'none' : preconditioner }, solveDiagonal, relativeNorm, trueResidual);
+    const x = scale ? Float64Array.from(result.x, (value, index) => value * scale[index]) : result.x;
+    return verifyPcgResult(matrix, b, { ...result, x }, options);
+  } };
+}
+
+function verifyPcgResult(matrix: SparseMatrixCSR, b: Float64Array, result: PcgResult, options: PcgOptions): PcgResult {
+  const residual = csrMatVec(matrix, result.x);
+  for (let index = 0; index < b.length; index++) residual[index] = b[index] - residual[index];
+  const bNorm = vectorNorm(b);
+  const relativeResidual = bNorm === 0 ? vectorNorm(residual) : vectorNorm(residual) / bNorm;
+  const verified = Number.isFinite(relativeResidual) && relativeResidual <= (options.tolerance ?? 1e-8);
+  return {
+    ...result,
+    relativeResidual,
+    converged: result.converged && verified,
+    reason: result.converged ? verified ? 'converged' : 'true-residual' : result.reason,
+    warnings: result.converged && !verified
+      ? [...result.warnings, 'PCG 原始系统真实残差未达到容差，结果未收敛。']
+      : result.warnings,
+  };
+}
+
+export function analyzeCsrMatrix(matrix: SparseMatrixCSR, options: { estimateSpectralRadius?: boolean } = {}): CsrMatrixDiagnostics {
   const tolerance = 1e-14;
   const entries = new Map<number, number>();
   const diagonal = new Float64Array(matrix.n);
@@ -196,7 +254,7 @@ export function analyzeCsrMatrix(matrix: SparseMatrixCSR, options: { estimateCon
     ? maxPositiveDiagonal / minPositiveDiagonal
     : undefined;
   const symmetryResidual = maxAbs > 0 ? symmetryMax / maxAbs : 0;
-  const estimatedCondition = options.estimateCondition ? estimateScaledCondition(matrix, diagonal) ?? diagonalRatio : undefined;
+  const estimatedScaledSpectralRadius = options.estimateSpectralRadius ? estimateScaledSpectralRadius(matrix, diagonal) : undefined;
 
   return {
     symmetryResidual,
@@ -204,12 +262,15 @@ export function analyzeCsrMatrix(matrix: SparseMatrixCSR, options: { estimateCon
     negativeDiagonalCount,
     nearZeroRowCount,
     diagonalRatio,
-    estimatedCondition,
+    estimatedScaledSpectralRadius,
     spdLikely: symmetryResidual < 1e-8 && zeroDiagonalCount === 0 && negativeDiagonalCount === 0 && nearZeroRowCount === 0,
   };
 }
 
-function pcgSolveCore(matrix: SparseMatrixCSR, b: Float64Array, options: PcgOptions = {}): PcgResult {
+function pcgSolveCore(matrix: SparseMatrixCSR, b: Float64Array, options: PcgOptions = {}, preparedDiagonal?: Float64Array,
+  relativeNorm = (residual: Float64Array) => vectorNorm(residual) / (vectorNorm(b) || 1),
+  trueResidual?: (x: Float64Array) => Float64Array,
+): PcgResult {
   const tolerance = options.tolerance ?? 1e-8;
   const maxIterations = options.maxIterations ?? Math.max(1000, matrix.n * 4);
   const preconditioner = options.preconditioner ?? 'jacobi';
@@ -219,18 +280,12 @@ function pcgSolveCore(matrix: SparseMatrixCSR, b: Float64Array, options: PcgOpti
   const r = new Float64Array(b);
   const z = new Float64Array(matrix.n);
   const p = new Float64Array(matrix.n);
-  const diagonal = new Float64Array(matrix.n);
-
-  for (let row = 0; row < matrix.n; row++) {
-    for (let index = matrix.rowPtr[row]; index < matrix.rowPtr[row + 1]; index++) {
-      if (matrix.colIdx[index] === row) diagonal[row] = matrix.values[index];
-    }
-  }
+  const diagonal = preparedDiagonal ?? extractDiagonal(matrix);
 
   const bNorm = vectorNorm(b);
   if (bNorm === 0) {
     if (residualHistory) residualHistory.push(0);
-    return { x, iterations: 0, relativeResidual: 0, converged: true, warnings, residualHistory };
+    return { x, iterations: 0, relativeResidual: 0, converged: true, reason: 'converged', warnings, residualHistory };
   }
 
   for (let index = 0; index < matrix.n; index++) {
@@ -245,21 +300,21 @@ function pcgSolveCore(matrix: SparseMatrixCSR, b: Float64Array, options: PcgOpti
   let rzOld = dot(r, z);
   if (!Number.isFinite(rzOld)) {
     warnings.push('PCG stopped because the initial residual is not finite.');
-    return { x, iterations: 0, relativeResidual: Infinity, converged: false, warnings, residualHistory };
+    return { x, iterations: 0, relativeResidual: Infinity, converged: false, reason: 'non-finite', warnings, residualHistory };
   }
 
-  let relativeResidual = vectorNorm(r) / bNorm;
+  let relativeResidual = relativeNorm(r);
   if (residualHistory) residualHistory.push(relativeResidual);
   if (relativeResidual <= tolerance) {
-    return { x, iterations: 0, relativeResidual, converged: true, warnings, residualHistory };
+    return { x, iterations: 0, relativeResidual, converged: true, reason: 'converged', warnings, residualHistory };
   }
 
   for (let iteration = 1; iteration <= maxIterations; iteration++) {
     const Ap = csrMatVec(matrix, p);
     const pAp = dot(p, Ap);
-    if (pAp <= 1e-30 || !Number.isFinite(pAp)) {
+    if (pAp <= 0 || !Number.isFinite(pAp)) {
       warnings.push('PCG stopped because the matrix is singular or not positive definite.');
-      return { x, iterations: iteration - 1, relativeResidual, converged: false, warnings, residualHistory };
+      return { x, iterations: iteration - 1, relativeResidual, converged: false, reason: 'non-positive-curvature', warnings, residualHistory };
     }
 
     const alpha = rzOld / pAp;
@@ -268,22 +323,23 @@ function pcgSolveCore(matrix: SparseMatrixCSR, b: Float64Array, options: PcgOpti
       r[index] -= alpha * Ap[index];
     }
 
-    relativeResidual = vectorNorm(r) / bNorm;
+    relativeResidual = relativeNorm(r);
     if (residualHistory) residualHistory.push(relativeResidual);
     if (!Number.isFinite(relativeResidual)) {
       warnings.push('PCG stopped because the residual is not finite.');
-      return { x, iterations: iteration, relativeResidual, converged: false, warnings, residualHistory };
+      return { x, iterations: iteration, relativeResidual, converged: false, reason: 'non-finite', warnings, residualHistory };
     }
+    let restart = false;
     if (relativeResidual <= tolerance) {
-      return { x, iterations: iteration, relativeResidual, converged: true, warnings, residualHistory };
-    }
-    if (residualHistory && residualHistory.length > 8) {
-      const recent = residualHistory.slice(-6);
-      const previous = residualHistory[residualHistory.length - 7];
-      if (recent.every(value => value > previous * 0.999)) {
-        warnings.push('PCG residual is stagnating; matrix may be ill-conditioned.');
-        return { x, iterations: iteration, relativeResidual, converged: false, warnings, residualHistory };
+      // Recurrence can drift at high accuracy. Recompute b-Ax before accepting;
+      // if needed restart from that residual within the same iteration budget.
+      if (trueResidual) r.set(trueResidual(x));
+      relativeResidual = relativeNorm(r);
+      if (residualHistory) residualHistory[residualHistory.length - 1] = relativeResidual;
+      if (Number.isFinite(relativeResidual) && relativeResidual <= tolerance) {
+        return { x, iterations: iteration, relativeResidual, converged: true, reason: 'converged', warnings, residualHistory };
       }
+      restart = true;
     }
 
     for (let index = 0; index < matrix.n; index++) {
@@ -293,57 +349,28 @@ function pcgSolveCore(matrix: SparseMatrixCSR, b: Float64Array, options: PcgOpti
     const rzNew = dot(r, z);
     if (!Number.isFinite(rzNew)) {
       warnings.push('PCG stopped because the preconditioned residual is not finite.');
-      return { x, iterations: iteration, relativeResidual, converged: false, warnings, residualHistory };
+      return { x, iterations: iteration, relativeResidual, converged: false, reason: 'non-finite', warnings, residualHistory };
     }
 
-    const beta = rzNew / rzOld;
+    const beta = restart ? 0 : rzNew / rzOld;
     for (let index = 0; index < matrix.n; index++) p[index] = z[index] + beta * p[index];
     rzOld = rzNew;
   }
 
   warnings.push(`PCG did not converge within ${maxIterations} iterations.`);
-  return { x, iterations: maxIterations, relativeResidual, converged: false, warnings, residualHistory };
+  return { x, iterations: maxIterations, relativeResidual, converged: false, reason: 'iteration-limit', warnings, residualHistory };
 }
 
-function pcgSolveSymmetricDiagonal(matrix: SparseMatrixCSR, b: Float64Array, options: PcgOptions): PcgResult {
-  const scale = new Float64Array(matrix.n);
-  const scaledB = new Float64Array(matrix.n);
-
-  for (let row = 0; row < matrix.n; row++) {
-    let diagonal = 0;
-    for (let index = matrix.rowPtr[row]; index < matrix.rowPtr[row + 1]; index++) {
-      if (matrix.colIdx[index] === row) diagonal = matrix.values[index];
-    }
-    if (diagonal > 1e-20 && Number.isFinite(diagonal)) {
-      scale[row] = 1 / Math.sqrt(diagonal);
-    } else {
-      scale[row] = 1;
-    }
-    scaledB[row] = b[row] * scale[row];
-  }
-
-  const scaledMatrix = scaleCsrSymmetricDiagonal(matrix, scale);
-  const result = pcgSolveCore(scaledMatrix, scaledB, { ...options, preconditioner: 'none' });
-  const x = new Float64Array(matrix.n);
-  for (let index = 0; index < matrix.n; index++) x[index] = result.x[index] * scale[index];
-
-  const residual = new Float64Array(b);
-  const Ax = csrMatVec(matrix, x);
-  for (let index = 0; index < residual.length; index++) residual[index] -= Ax[index];
-  const bNorm = vectorNorm(b);
-  const relativeResidual = bNorm === 0 ? 0 : vectorNorm(residual) / bNorm;
-
-  return { ...result, x, relativeResidual };
-}
-
-function estimateScaledCondition(matrix: SparseMatrixCSR, diagonal: Float64Array) {
+function estimateScaledSpectralRadius(matrix: SparseMatrixCSR, diagonal: Float64Array) {
   if (matrix.n === 0) return undefined;
   const scale = new Float64Array(matrix.n);
   for (let row = 0; row < matrix.n; row++) {
     scale[row] = diagonal[row] > 1e-20 ? 1 / Math.sqrt(diagonal[row]) : 1;
   }
   const scaled = scaleCsrSymmetricDiagonal(matrix, scale);
-  let vector = new Float64Array(matrix.n).fill(1 / Math.sqrt(matrix.n));
+  let vector = Float64Array.from({ length: matrix.n }, (_, index) => Math.sin(index + 1) + Math.cos((index + 1) * 1.7));
+  const initialNorm = vectorNorm(vector);
+  vector = Float64Array.from(vector, value => value / initialNorm);
   let lambdaMax = 0;
   for (let iteration = 0; iteration < 12; iteration++) {
     const next = csrMatVec(scaled, vector);

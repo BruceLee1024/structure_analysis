@@ -17,9 +17,10 @@ export interface SpaceServiceabilityRow {
   lengthM: number;
   limitRatio: number;
   limitMm: number;
-  displacementMm: number;
+  deflectionMm: number;
   utilization: number;
-  controllingNodeId: number;
+  locationM: number;
+  reference: 'chord' | 'fixed-start' | 'fixed-end';
   passed: boolean;
 }
 
@@ -93,8 +94,8 @@ export function buildSpaceServiceabilityRows(
   nodes: SpaceNode[],
   limitRatioInput?: number,
 ): SpaceServiceabilityRow[] {
+  if (result.status === 'failed') return [];
   const limitRatio = normalizeDeflectionLimitRatio(limitRatioInput);
-  const displacementMap = new Map(result.displacements.map(displacement => [displacement.nodeId, displacement]));
 
   return result.elements.flatMap(elementResult => {
     const element = elements.find(item => item.id === elementResult.elementId);
@@ -102,26 +103,21 @@ export function buildSpaceServiceabilityRows(
 
     const lengthM = spaceElementLength(element, nodes);
     if (lengthM <= 0) return [];
-
-    const startDisplacement = displacementMap.get(element.startNode);
-    const endDisplacement = displacementMap.get(element.endNode);
-    if (!startDisplacement || !endDisplacement) return [];
-
-    const startMagnitude = Math.hypot(startDisplacement.dx, startDisplacement.dy, startDisplacement.dz);
-    const endMagnitude = Math.hypot(endDisplacement.dx, endDisplacement.dy, endDisplacement.dz);
-    const controllingNodeId = endMagnitude >= startMagnitude ? element.endNode : element.startNode;
-    const displacementMm = Math.max(startMagnitude, endMagnitude);
+    const deflection = elementResult.transverseDeflection;
+    if (!deflection || !Number.isFinite(deflection.maxMm)) return [];
+    const deflectionMm = deflection.maxMm;
     const limitMm = lengthM * 1000 / limitRatio;
-    const utilization = limitMm > 0 ? displacementMm / limitMm : 0;
+    const utilization = limitMm > 0 ? deflectionMm / limitMm : 0;
 
     return [{
       elementId: elementResult.elementId,
       lengthM,
       limitRatio,
       limitMm,
-      displacementMm,
+      deflectionMm,
       utilization,
-      controllingNodeId,
+      locationM: deflection.locationM,
+      reference: deflection.reference,
       passed: utilization <= 1 + 1e-9,
     }];
   });

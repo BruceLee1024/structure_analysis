@@ -59,6 +59,7 @@ export function loadProgress(): LearningProgress {
 function saveProgress(p: LearningProgress) {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(p));
+    if (typeof window !== 'undefined') window.dispatchEvent(new Event('learning-progress-changed'));
   } catch { /* quota exceeded — silently ignore */ }
 }
 

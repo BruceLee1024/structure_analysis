@@ -2,7 +2,6 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import {
-  buildSpaceFrameTransformation,
   isSpaceElementLoad,
   isSpaceNodalLoad,
   type SpaceAnalysisResult,
@@ -11,6 +10,7 @@ import {
   type SpaceNode,
 } from '../../utils/spaceSolver';
 import type { SpaceModel } from '../../utils/spaceModel';
+import { getSpaceDeformedCurve, getSpaceLocalDirection } from '../../utils/spaceViewportGeometry';
 
 interface SpaceModelViewportProps {
   model: SpaceModel;
@@ -183,23 +183,6 @@ const nodeDotAt = (point: THREE.Vector3, restrained: boolean, selected: boolean)
   return mesh;
 };
 
-const hitTubeBetween = (start: THREE.Vector3, end: THREE.Vector3, radius: number, userData: ElementHitUserData) => {
-  const direction = end.clone().sub(start);
-  const length = direction.length();
-  const geometry = new THREE.CylinderGeometry(radius, radius, Math.max(length, 0.001), 8, 1);
-  const material = new THREE.MeshBasicMaterial({
-    color: 0xffffff,
-    transparent: true,
-    opacity: 0,
-    depthWrite: false,
-  });
-  const mesh = new THREE.Mesh(geometry, material);
-  mesh.position.copy(start.clone().add(end).multiplyScalar(0.5));
-  mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), direction.normalize());
-  mesh.userData = userData;
-  return mesh;
-};
-
 const hitSphereAt = (point: THREE.Vector3, radius: number, userData: NodeHitUserData) => {
   const geometry = new THREE.SphereGeometry(radius, 12, 12);
   const material = new THREE.MeshBasicMaterial({
@@ -270,14 +253,9 @@ const globalDirectionToScene = (direction: SpaceLoad['direction'], sign: number)
   direction === 'y' ? -sign : 0,
 );
 
-const localDirectionToScene = (start: SpaceNode, end: SpaceNode, direction: SpaceLoad['direction'], sign: number) => {
-  const T = buildSpaceFrameTransformation(start, end);
-  const axis = direction === 'x' ? 0 : direction === 'y' ? 1 : 2;
-  return new THREE.Vector3(
-    T[axis][0] * sign,
-    T[axis][2] * sign,
-    -T[axis][1] * sign,
-  );
+const localDirectionToScene = (start: SpaceNode, end: SpaceNode, roll: number | undefined, direction: SpaceLoad['direction'], sign: number) => {
+  const axis = getSpaceLocalDirection(start, end, roll, direction);
+  return new THREE.Vector3(axis.x * sign, axis.z * sign, -axis.y * sign);
 };
 
 const disposeObject = (object: THREE.Object3D) => {
@@ -416,6 +394,7 @@ const SpaceModelViewport: React.FC<SpaceModelViewportProps> = ({
     animate();
 
     const raycaster = new THREE.Raycaster();
+    raycaster.params.Line.threshold = 0.18;
     const pointer = new THREE.Vector2();
     const clearHover = () => {
       setHoveredElement(null);
@@ -557,25 +536,28 @@ const SpaceModelViewport: React.FC<SpaceModelViewportProps> = ({
       const endPoint = new THREE.Vector3(endDef.x, endDef.z, -endDef.y);
 
       const elementResult = elementResultMap.get(element.id);
+      const curve = elementResult ? getSpaceDeformedCurve(start, end, element, elementResult, deformationScale) : null;
+      const memberPoints = curve?.map(point => toScenePoint(point.x, point.y, point.z)) ?? [startPoint, endPoint];
       const forceValue = activeForceMode && elementResult ? forceValueForMode(elementResult, activeForceMode) : 0;
       const forceRatio = activeForceMode && maxForceValue > 0 ? Math.min(forceValue / maxForceValue, 1) : 0;
       const memberColor = activeForceMode && forceValue > 0 ? forceHeatColor(forceRatio) : deformedColor;
-      group.add(lineObject([startPoint, endPoint], memberColor, activeForceMode ? 0.9 : 0.82));
+      group.add(lineObject(memberPoints, memberColor, activeForceMode ? 0.9 : 0.82));
       if (activeForceMode && elementResult && maxForceValue > 0) {
         group.add(forceDiagramBetween(startPoint, endPoint, elementResult, activeForceMode, maxForceValue));
       }
 
       if (selectedEntity?.type === 'member' && selectedEntity.id === element.id) {
-        group.add(lineObject([startPoint, endPoint], 0xfbbf24, 1));
+        group.add(lineObject(memberPoints, 0xfbbf24, 1));
       }
-      const hitTarget = hitTubeBetween(startPoint, endPoint, 0.18, {
+      const hitTarget = lineObject(memberPoints, 0xffffff, 0);
+      hitTarget.userData = {
         kind: 'space-element-hit',
         elementId: element.id,
         startPoint,
         endPoint,
-        length: startPoint.distanceTo(endPoint),
+        length: elementResult?.length ?? startPoint.distanceTo(endPoint),
         result: elementResult,
-      });
+      } satisfies ElementHitUserData;
       hitTargetsRef.current.push(hitTarget);
       group.add(hitTarget);
 
@@ -627,7 +609,7 @@ const SpaceModelViewport: React.FC<SpaceModelViewportProps> = ({
           if (Math.abs(magnitude) < 1e-9) continue;
           const sign = magnitude >= 0 ? 1 : -1;
           const direction = (load.coordinateSystem ?? 'global') === 'local'
-            ? localDirectionToScene(start, end, load.direction, sign)
+            ? localDirectionToScene(start, end, element.roll, load.direction, sign)
             : globalDirectionToScene(load.direction, sign);
           if (direction.length() < 1e-9) continue;
           const length = 0.58;

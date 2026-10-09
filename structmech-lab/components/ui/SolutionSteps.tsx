@@ -1,11 +1,12 @@
-import React, { useState } from 'react';
+import React, { useId, useState } from 'react';
+import { ChevronDown, Info, ListOrdered } from 'lucide-react';
 
 interface Step {
   title: string;
   equation?: string;
   result?: string;
   explanation?: string;
-  /** AI-generated "why" explanation, shown on click */
+  /** Additional principle explanation supplied by the learning module. */
   aiWhy?: string;
 }
 
@@ -18,78 +19,71 @@ interface SolutionStepsProps {
 const SolutionSteps: React.FC<SolutionStepsProps> = ({ steps, title = '求解过程', defaultExpanded = true }) => {
   const [expanded, setExpanded] = useState(defaultExpanded);
   const [whyOpen, setWhyOpen] = useState<Record<number, boolean>>({});
-
-  const toggleWhy = (idx: number) => {
-    setWhyOpen(prev => ({ ...prev, [idx]: !prev[idx] }));
-  };
+  const id = useId();
+  const explainable = steps.flatMap((step, i) => step.aiWhy ? [i] : []);
+  const allPrinciplesOpen = explainable.length > 0 && explainable.every(i => whyOpen[i]);
+  const toggleWhy = (index: number) => setWhyOpen(prev => ({ ...prev, [index]: !prev[index] }));
+  const toggleAll = () => setWhyOpen(Object.fromEntries(explainable.map(i => [i, !allPrinciplesOpen])));
 
   return (
-    <div className="bg-white rounded-2xl border border-slate-200/70 shadow-sm overflow-hidden">
-      <div
-        className="flex items-center justify-between px-4 py-3.5 cursor-pointer bg-gradient-to-r from-slate-50 via-white to-slate-50/80 hover:from-slate-50 hover:to-slate-100/70 transition-colors"
-        onClick={() => setExpanded(!expanded)}
-      >
-        <div className="min-w-0">
-          <h4 className="text-sm font-bold text-slate-800 flex items-center gap-2">
-            <span className="text-base">📝</span> {title}
-          </h4>
-          <div className="mt-0.5 text-[11px] text-slate-500">共 {steps.length} 步，按“公式 → 结果 → 解释”阅读</div>
+    <section className="learning-solution-card solution-workbook" aria-labelledby={`${id}-title`}>
+      <header className="solution-heading">
+        <div className="solution-heading-label">
+          <ListOrdered size={17} aria-hidden="true" />
+          <h3 id={`${id}-title`}>{title}</h3>
+          <span className="solution-step-count">{steps.length} 个步骤</span>
         </div>
-        <svg
-          className={`w-4 h-4 text-slate-400 transition-transform duration-200 ${expanded ? 'rotate-180' : ''}`}
-          fill="none" stroke="currentColor" viewBox="0 0 24 24"
-        >
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-        </svg>
-      </div>
-
+        <div className="solution-heading-actions">
+          {expanded && explainable.length > 0 && (
+            <button type="button" className="solution-all-principles" onClick={toggleAll} aria-expanded={allPrinciplesOpen}>
+              <Info size={13} aria-hidden="true" />{allPrinciplesOpen ? '收起原理' : '展开原理'}
+            </button>
+          )}
+          <button type="button" className="solution-collapse" onClick={() => setExpanded(prev => !prev)} aria-expanded={expanded} aria-controls={`${id}-body`} aria-label={`${expanded ? '收起' : '展开'}${title}`}>
+            <ChevronDown size={17} className={expanded ? 'is-expanded' : ''} aria-hidden="true" />
+          </button>
+        </div>
+      </header>
       {expanded && (
-        <div className="px-4 pb-4 pt-1 space-y-2.5 bg-gradient-to-b from-white to-slate-50/40">
-          {steps.map((step, i) => (
-            <div key={i} className="flex gap-3 items-start rounded-xl border border-slate-200/70 bg-white/90 px-3 py-3 shadow-[0_1px_0_rgba(255,255,255,0.75)_inset]">
-              <div className="w-6 h-6 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 text-white text-xs font-bold flex items-center justify-center flex-shrink-0 mt-0.5 shadow-sm">
-                {i + 1}
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="text-sm font-semibold text-slate-700 flex items-center gap-2">
-                  {step.title}
+        <div id={`${id}-body`} className="solution-body">
+          <table className="solution-table" aria-labelledby={`${id}-title`}>
+            <colgroup><col className="solution-title-column" /><col className="solution-equation-column" /><col className="solution-result-column" /></colgroup>
+            <thead><tr><th scope="col">推导步骤</th><th scope="col">公式与代入</th><th scope="col">计算结果</th></tr></thead>
+            <tbody>
+              {steps.map((step, i) => (
+                <React.Fragment key={i}>
+                  <tr className="solution-step-row">
+                    <th scope="row" className="solution-step-title">
+                      <div className="solution-step-identity">
+                        <span className="solution-step-number" aria-hidden="true">{String(i + 1).padStart(2, '0')}</span>
+                        <div className="solution-step-label">
+                          <span>{step.title}</span>
+                          {step.aiWhy && (
+                            <button type="button" className={`solution-principle-toggle ${whyOpen[i] ? 'is-open' : ''}`} onClick={() => toggleWhy(i)} aria-expanded={!!whyOpen[i]} aria-controls={`${id}-principle-${i}`} aria-label={`${whyOpen[i] ? '收起' : '展开'}步骤${i + 1}原理`}>
+                              原理说明<ChevronDown size={12} aria-hidden="true" />
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    </th>
+                    <td className="solution-equation-cell" data-label="公式与代入">
+                      {step.equation ? <div className="solution-equation">{step.equation}</div> : <span className="solution-no-equation" aria-label="此步骤直接给出结果">—</span>}
+                      {step.explanation && <p className="solution-step-note">{step.explanation}</p>}
+                    </td>
+                    <td className="solution-result-cell" data-label="计算结果"><div className="solution-step-result">{step.result ?? '—'}</div></td>
+                  </tr>
                   {step.aiWhy && (
-                    <button
-                      onClick={() => toggleWhy(i)}
-                      className={`inline-flex items-center gap-0.5 px-1.5 py-0.5 text-[10px] font-medium rounded-md transition-all ${
-                        whyOpen[i]
-                          ? 'bg-indigo-100 text-indigo-700'
-                          : 'bg-slate-100 text-slate-500 hover:bg-indigo-50 hover:text-indigo-600'
-                      }`}
-                    >
-                      <span>🤔</span> 为什么？
-                    </button>
+                    <tr id={`${id}-principle-${i}`} className="solution-principle-row" hidden={!whyOpen[i]}>
+                      <td colSpan={3}><div className="solution-principle-content"><Info size={15} aria-hidden="true" /><div><span className="solution-principle-caption">步骤 {i + 1} · 原理说明</span><p>{step.aiWhy}</p></div></div></td>
+                    </tr>
                   )}
-                </div>
-                {step.equation && (
-                  <div className="mt-1 px-3 py-1.5 bg-gradient-to-r from-slate-50 to-blue-50/30 rounded-lg border border-slate-100 font-serif text-sm text-slate-800">
-                    {step.equation}
-                  </div>
-                )}
-                {step.result && (
-                  <div className="mt-1 text-sm font-mono font-bold text-blue-700">
-                    = {step.result}
-                  </div>
-                )}
-                {step.explanation && (
-                  <div className="mt-0.5 text-xs text-slate-500">{step.explanation}</div>
-                )}
-                {step.aiWhy && whyOpen[i] && (
-                  <div className="mt-1.5 px-3 py-2 bg-gradient-to-r from-indigo-50 to-blue-50 rounded-lg border border-indigo-100 text-xs text-slate-700 leading-relaxed">
-                    <span className="text-indigo-500 font-medium">AI 解读：</span> {step.aiWhy}
-                  </div>
-                )}
-              </div>
-            </div>
-          ))}
+                </React.Fragment>
+              ))}
+            </tbody>
+          </table>
         </div>
       )}
-    </div>
+    </section>
   );
 };
 

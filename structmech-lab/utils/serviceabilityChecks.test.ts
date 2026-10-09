@@ -61,6 +61,7 @@ const spaceResult: SpaceAnalysisResult = {
       length: 5,
       localEndForces: [],
       localDisplacements: [],
+      transverseDeflection: { maxMm: 26, locationM: 2.5, reference: 'chord' },
       stations: [],
       maxAbsAxial: 0,
       maxAbsShearY: 0,
@@ -96,15 +97,16 @@ describe('serviceability checks', () => {
     expect(getWorstServiceabilityRow(rows)?.elementId).toBe(1);
   });
 
-  test('builds space member serviceability rows from endpoint resultant displacement', () => {
+  test('uses recovered transverse deflection instead of endpoint resultant displacement', () => {
     const [row] = buildSpaceServiceabilityRows(spaceResult, spaceElements, spaceNodes, 250);
 
     expect(row.elementId).toBe(1);
     expect(row.lengthM).toBe(5);
     expect(row.limitMm).toBe(20);
-    expect(row.displacementMm).toBe(30);
-    expect(row.utilization).toBeCloseTo(1.5);
-    expect(row.controllingNodeId).toBe(2);
+    expect(row.deflectionMm).toBe(26);
+    expect(row.utilization).toBeCloseTo(1.3);
+    expect(row.locationM).toBe(2.5);
+    expect(row.reference).toBe('chord');
     expect(row.passed).toBe(false);
   });
 
@@ -112,5 +114,11 @@ describe('serviceability checks', () => {
     const rows = buildSpaceServiceabilityRows(spaceResult, spaceElements, spaceNodes, 250);
 
     expect(getWorstSpaceServiceabilityRow(rows)?.elementId).toBe(1);
+  });
+
+  test('does not produce passing checks for failed or legacy results without member deflection', () => {
+    expect(buildSpaceServiceabilityRows({ ...spaceResult, status: 'failed' }, spaceElements, spaceNodes)).toEqual([]);
+    const legacy = { ...spaceResult, elements: spaceResult.elements.map(item => ({ ...item, transverseDeflection: undefined })) };
+    expect(buildSpaceServiceabilityRows(legacy, spaceElements, spaceNodes)).toEqual([]);
   });
 });

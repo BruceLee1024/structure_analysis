@@ -1,0 +1,681 @@
+{
+  "units": {
+    "length": "m",
+    "force": "kN",
+    "E": "GPa",
+    "A": "cm^2",
+    "IyIzJ": "10^6 mm^4",
+    "rotation": "rad",
+    "roll": "degree"
+  },
+  "models": [
+    {
+      "name": "cantilever-mixed-tip",
+      "nodes": [
+        {
+          "id": 1,
+          "x": 0,
+          "y": 0,
+          "z": 0,
+          "restraints": [
+            true,
+            true,
+            true,
+            true,
+            true,
+            true
+          ]
+        },
+        {
+          "id": 2,
+          "x": 4,
+          "y": 0,
+          "z": 0,
+          "restraints": [
+            false,
+            false,
+            false,
+            false,
+            false,
+            false
+          ]
+        }
+      ],
+      "elements": [
+        {
+          "id": 1,
+          "startNode": 1,
+          "endNode": 2,
+          "E": 200,
+          "A": 100,
+          "Iy": 200,
+          "Iz": 500,
+          "J": 150,
+          "nu": 0.3,
+          "referenceY": [
+            0,
+            0,
+            1
+          ]
+        }
+      ],
+      "loads": [
+        {
+          "id": "px",
+          "nodeId": 2,
+          "type": "point",
+          "direction": "x",
+          "magnitude": 3
+        },
+        {
+          "id": "py",
+          "nodeId": 2,
+          "type": "point",
+          "direction": "y",
+          "magnitude": 5
+        },
+        {
+          "id": "pz",
+          "nodeId": 2,
+          "type": "point",
+          "direction": "z",
+          "magnitude": -10
+        },
+        {
+          "id": "m",
+          "nodeId": 2,
+          "type": "moment",
+          "direction": "x",
+          "magnitude": 2
+        }
+      ]
+    },
+    {
+      "name": "cantilever-uniform-local-y",
+      "nodes": [
+        {
+          "id": 1,
+          "x": 0,
+          "y": 0,
+          "z": 0,
+          "restraints": [
+            true,
+            true,
+            true,
+            true,
+            true,
+            true
+          ]
+        },
+        {
+          "id": 2,
+          "x": 4,
+          "y": 0,
+          "z": 0,
+          "restraints": [
+            false,
+            false,
+            false,
+            false,
+            false,
+            false
+          ]
+        }
+      ],
+      "elements": [
+        {
+          "id": 1,
+          "startNode": 1,
+          "endNode": 2,
+          "E": 200,
+          "A": 100,
+          "Iy": 200,
+          "Iz": 500,
+          "J": 150,
+          "nu": 0.3,
+          "referenceY": [
+            0,
+            0,
+            1
+          ]
+        }
+      ],
+      "loads": [
+        {
+          "id": "q",
+          "elementId": 1,
+          "type": "distributed",
+          "direction": "y",
+          "coordinateSystem": "local",
+          "startMagnitude": -2,
+          "endMagnitude": -2
+        }
+      ]
+    },
+    {
+      "name": "cantilever-uniform-local-z",
+      "nodes": [
+        {
+          "id": 1,
+          "x": 0,
+          "y": 0,
+          "z": 0,
+          "restraints": [
+            true,
+            true,
+            true,
+            true,
+            true,
+            true
+          ]
+        },
+        {
+          "id": 2,
+          "x": 4,
+          "y": 0,
+          "z": 0,
+          "restraints": [
+            false,
+            false,
+            false,
+            false,
+            false,
+            false
+          ]
+        }
+      ],
+      "elements": [
+        {
+          "id": 1,
+          "startNode": 1,
+          "endNode": 2,
+          "E": 200,
+          "A": 100,
+          "Iy": 200,
+          "Iz": 500,
+          "J": 150,
+          "nu": 0.3,
+          "referenceY": [
+            0,
+            0,
+            1
+          ]
+        }
+      ],
+      "loads": [
+        {
+          "id": "q",
+          "elementId": 1,
+          "type": "distributed",
+          "direction": "z",
+          "coordinateSystem": "local",
+          "startMagnitude": -2,
+          "endMagnitude": -2
+        }
+      ]
+    },
+    {
+      "name": "cantilever-roll-37-global-trapezoid",
+      "nodes": [
+        {
+          "id": 1,
+          "x": 0,
+          "y": 0,
+          "z": 0,
+          "restraints": [
+            true,
+            true,
+            true,
+            true,
+            true,
+            true
+          ]
+        },
+        {
+          "id": 2,
+          "x": 4,
+          "y": 0,
+          "z": 0,
+          "restraints": [
+            false,
+            false,
+            false,
+            false,
+            false,
+            false
+          ]
+        }
+      ],
+      "elements": [
+        {
+          "id": 1,
+          "startNode": 1,
+          "endNode": 2,
+          "E": 200,
+          "A": 100,
+          "Iy": 200,
+          "Iz": 500,
+          "J": 150,
+          "nu": 0.3,
+          "referenceY": [
+            0,
+            -0.6018150231520483,
+            0.7986355100472928
+          ],
+          "roll": 37
+        }
+      ],
+      "loads": [
+        {
+          "id": "q",
+          "elementId": 1,
+          "type": "trapezoidal",
+          "direction": "z",
+          "coordinateSystem": "global",
+          "startMagnitude": -1,
+          "endMagnitude": -3
+        }
+      ]
+    },
+    {
+      "name": "simply-supported-triangle",
+      "nodes": [
+        {
+          "id": 1,
+          "x": 0,
+          "y": 0,
+          "z": 0,
+          "restraints": [
+            true,
+            true,
+            true,
+            true,
+            false,
+            false
+          ]
+        },
+        {
+          "id": 2,
+          "x": 4,
+          "y": 0,
+          "z": 0,
+          "restraints": [
+            false,
+            true,
+            true,
+            false,
+            false,
+            false
+          ]
+        }
+      ],
+      "elements": [
+        {
+          "id": 1,
+          "startNode": 1,
+          "endNode": 2,
+          "E": 200,
+          "A": 100,
+          "Iy": 200,
+          "Iz": 500,
+          "J": 150,
+          "nu": 0.3,
+          "referenceY": [
+            0,
+            0,
+            1
+          ]
+        }
+      ],
+      "loads": [
+        {
+          "id": "q",
+          "elementId": 1,
+          "type": "trapezoidal",
+          "direction": "y",
+          "coordinateSystem": "local",
+          "startMagnitude": 0,
+          "endMagnitude": -2
+        }
+      ]
+    },
+    {
+      "name": "released-fixed-ended",
+      "nodes": [
+        {
+          "id": 1,
+          "x": 0,
+          "y": 0,
+          "z": 0,
+          "restraints": [
+            true,
+            true,
+            true,
+            true,
+            true,
+            true
+          ]
+        },
+        {
+          "id": 2,
+          "x": 4,
+          "y": 0,
+          "z": 0,
+          "restraints": [
+            true,
+            true,
+            true,
+            true,
+            true,
+            true
+          ]
+        }
+      ],
+      "elements": [
+        {
+          "id": 1,
+          "startNode": 1,
+          "endNode": 2,
+          "E": 200,
+          "A": 100,
+          "Iy": 200,
+          "Iz": 500,
+          "J": 150,
+          "nu": 0.3,
+          "referenceY": [
+            0,
+            0,
+            1
+          ],
+          "releaseEnd": {
+            "rz": true
+          }
+        }
+      ],
+      "loads": [
+        {
+          "id": "q",
+          "elementId": 1,
+          "type": "distributed",
+          "direction": "y",
+          "coordinateSystem": "local",
+          "startMagnitude": -2,
+          "endMagnitude": -2
+        }
+      ]
+    },
+    {
+      "name": "spring-supported-tip",
+      "nodes": [
+        {
+          "id": 1,
+          "x": 0,
+          "y": 0,
+          "z": 0,
+          "restraints": [
+            true,
+            true,
+            true,
+            true,
+            true,
+            true
+          ]
+        },
+        {
+          "id": 2,
+          "x": 4,
+          "y": 0,
+          "z": 0,
+          "restraints": [
+            false,
+            false,
+            false,
+            false,
+            false,
+            false
+          ],
+          "springStiffness": [
+            0,
+            0,
+            1000,
+            0,
+            0,
+            0
+          ]
+        }
+      ],
+      "elements": [
+        {
+          "id": 1,
+          "startNode": 1,
+          "endNode": 2,
+          "E": 200,
+          "A": 100,
+          "Iy": 200,
+          "Iz": 500,
+          "J": 150,
+          "nu": 0.3,
+          "referenceY": [
+            0,
+            0,
+            1
+          ]
+        }
+      ],
+      "loads": [
+        {
+          "id": "p",
+          "nodeId": 2,
+          "type": "point",
+          "direction": "z",
+          "magnitude": -10
+        }
+      ]
+    },
+    {
+      "name": "inclined-anisotropic-cantilever",
+      "nodes": [
+        {
+          "id": 1,
+          "x": 0,
+          "y": 0,
+          "z": 0,
+          "restraints": [
+            true,
+            true,
+            true,
+            true,
+            true,
+            true
+          ]
+        },
+        {
+          "id": 2,
+          "x": 3,
+          "y": 0,
+          "z": 4,
+          "restraints": [
+            false,
+            false,
+            false,
+            false,
+            false,
+            false
+          ]
+        }
+      ],
+      "elements": [
+        {
+          "id": 1,
+          "startNode": 1,
+          "endNode": 2,
+          "E": 200,
+          "A": 100,
+          "Iy": 200,
+          "Iz": 500,
+          "J": 150,
+          "nu": 0.3,
+          "referenceY": [
+            -0.8,
+            0,
+            0.6
+          ]
+        }
+      ],
+      "loads": [
+        {
+          "id": "p",
+          "nodeId": 2,
+          "type": "point",
+          "direction": "y",
+          "magnitude": 7
+        },
+        {
+          "id": "q",
+          "elementId": 1,
+          "type": "distributed",
+          "direction": "z",
+          "coordinateSystem": "global",
+          "startMagnitude": -2,
+          "endMagnitude": -2
+        }
+      ]
+    },
+    {
+      "name": "spatial-portal",
+      "nodes": [
+        {
+          "id": 1,
+          "x": 0,
+          "y": 0,
+          "z": 0,
+          "restraints": [
+            true,
+            true,
+            true,
+            true,
+            true,
+            true
+          ]
+        },
+        {
+          "id": 2,
+          "x": 4,
+          "y": 2,
+          "z": 0,
+          "restraints": [
+            true,
+            true,
+            true,
+            true,
+            true,
+            true
+          ]
+        },
+        {
+          "id": 3,
+          "x": 0,
+          "y": 0,
+          "z": 3,
+          "restraints": [
+            false,
+            false,
+            false,
+            false,
+            false,
+            false
+          ]
+        },
+        {
+          "id": 4,
+          "x": 4,
+          "y": 2,
+          "z": 3,
+          "restraints": [
+            false,
+            false,
+            false,
+            false,
+            false,
+            false
+          ]
+        }
+      ],
+      "elements": [
+        {
+          "id": 1,
+          "startNode": 1,
+          "endNode": 3,
+          "E": 200,
+          "A": 100,
+          "Iy": 200,
+          "Iz": 500,
+          "J": 150,
+          "nu": 0.3,
+          "referenceY": [
+            0,
+            1,
+            0
+          ]
+        },
+        {
+          "id": 2,
+          "startNode": 2,
+          "endNode": 4,
+          "E": 200,
+          "A": 100,
+          "Iy": 200,
+          "Iz": 500,
+          "J": 150,
+          "nu": 0.3,
+          "referenceY": [
+            0,
+            1,
+            0
+          ]
+        },
+        {
+          "id": 3,
+          "startNode": 3,
+          "endNode": 4,
+          "E": 200,
+          "A": 100,
+          "Iy": 200,
+          "Iz": 500,
+          "J": 150,
+          "nu": 0.3,
+          "referenceY": [
+            0,
+            0,
+            1
+          ]
+        }
+      ],
+      "loads": [
+        {
+          "id": "px",
+          "nodeId": 4,
+          "type": "point",
+          "direction": "x",
+          "magnitude": 8
+        },
+        {
+          "id": "py",
+          "nodeId": 3,
+          "type": "point",
+          "direction": "y",
+          "magnitude": 5
+        },
+        {
+          "id": "q",
+          "elementId": 3,
+          "type": "distributed",
+          "direction": "z",
+          "coordinateSystem": "global",
+          "startMagnitude": -2,
+          "endMagnitude": -2
+        }
+      ]
+    }
+  ]
+}

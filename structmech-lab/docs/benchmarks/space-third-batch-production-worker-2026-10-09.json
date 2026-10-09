@@ -1,0 +1,94 @@
+{
+  "generatedAt": "2026-10-09T09:12:56.170Z",
+  "worker": "spaceSolver.worker-IXLmFdzD.js",
+  "sourceSha256": "0347d2916d54e79f1e8bec3c2e67f536d1ddc780be5f3e58a8f0aec7fb04e7ea",
+  "targetsPerBatch": 22,
+  "largeBatches": 3,
+  "partialTargets": 3,
+  "denseComparisonTargets": [
+    0,
+    10,
+    21
+  ],
+  "cold": {
+    "diagnostics": {
+      "targetsSolved": 22,
+      "loadCasesSolved": 20,
+      "combinationsSolved": 2,
+      "stiffnessAssemblies": 1,
+      "matrixDiagnosticsBuilds": 1,
+      "denseFactorizations": 0,
+      "preconditionerBuilds": 1,
+      "loadVectorsBuilt": 22,
+      "warnings": []
+    },
+    "lastPreparation": {
+      "stiffnessReused": true,
+      "diagnosticsReused": true,
+      "denseFactorReused": false,
+      "preconditionerReused": true,
+      "stiffnessAssemblies": 1,
+      "matrixDiagnosticsBuilds": 1,
+      "denseFactorizations": 0,
+      "preconditionerBuilds": 1,
+      "solves": 22
+    },
+    "maxTrueResidual": 9.865201763469491e-9
+  },
+  "warm": {
+    "diagnostics": {
+      "targetsSolved": 22,
+      "loadCasesSolved": 20,
+      "combinationsSolved": 2,
+      "stiffnessAssemblies": 0,
+      "matrixDiagnosticsBuilds": 1,
+      "denseFactorizations": 0,
+      "preconditionerBuilds": 1,
+      "loadVectorsBuilt": 22,
+      "warnings": []
+    },
+    "lastPreparation": {
+      "stiffnessReused": true,
+      "diagnosticsReused": true,
+      "denseFactorReused": false,
+      "preconditionerReused": true,
+      "stiffnessAssemblies": 1,
+      "matrixDiagnosticsBuilds": 1,
+      "denseFactorizations": 0,
+      "preconditionerBuilds": 1,
+      "solves": 44
+    },
+    "maxTrueResidual": 9.8652017985054e-9
+  },
+  "rebuilt": {
+    "diagnostics": {
+      "targetsSolved": 22,
+      "loadCasesSolved": 20,
+      "combinationsSolved": 2,
+      "stiffnessAssemblies": 1,
+      "matrixDiagnosticsBuilds": 1,
+      "denseFactorizations": 0,
+      "preconditionerBuilds": 1,
+      "loadVectorsBuilt": 22,
+      "warnings": []
+    },
+    "lastPreparation": {
+      "stiffnessReused": true,
+      "diagnosticsReused": true,
+      "denseFactorReused": false,
+      "preconditionerReused": true,
+      "stiffnessAssemblies": 1,
+      "matrixDiagnosticsBuilds": 1,
+      "denseFactorizations": 0,
+      "preconditionerBuilds": 1,
+      "solves": 22
+    },
+    "maxTrueResidual": 9.878204772271951e-9
+  },
+  "partialStatuses": [
+    "ok",
+    "failed",
+    "failed"
+  ],
+  "passed": true
+}

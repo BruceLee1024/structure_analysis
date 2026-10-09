@@ -76,3 +76,21 @@ describe('modelIO', () => {
     expect(importSolverModel(JSON.stringify({ kind: 'StructLabSolverModel', params: { nodes: [] } })).ok).toBe(false);
   });
 });
+
+ test('round-trips partial line-load bounds alongside legacy whole-element loads', () => {
+  const params: SolverParams = { ...sampleParams, loads: [
+    ...sampleParams.loads,
+    { id: 'partial', type: 'distributed', magnitude: -3, elementId: 1, startLocation: 0.125, endLocation: 0.5 },
+  ] };
+  const imported = importSolverModel(JSON.stringify(createSolverModelExport(params)));
+  expect(imported.ok).toBe(true);
+  if (imported.ok) expect(imported.params.loads).toEqual(params.loads);
+});
+
+test('斜向荷载角度及带符号两端强度保存后完整恢复，缺失角度拒绝导入', () => {
+  const params: SolverParams = { ...sampleParams, loads: [{ id: 'q', type: 'trapezoidal', elementId: 1, direction: 'angle', angle: 32.5, magnitude: 5, magnitudeEnd: -3, startLocation: .2, endLocation: .7 }] };
+  const imported = importSolverModel(JSON.stringify(createSolverModelExport(params)));
+  expect(imported.ok && imported.params.loads).toEqual(params.loads);
+  const bad = { ...params, loads: params.loads.map(l => ({ ...l, angle: undefined })) };
+  expect(importSolverModel(JSON.stringify(createSolverModelExport(bad))).ok).toBe(false);
+});

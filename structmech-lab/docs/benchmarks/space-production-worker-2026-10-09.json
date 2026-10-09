@@ -1,0 +1,40 @@
+{
+  "checkedAt": "2026-10-09T05:01:31.159Z",
+  "url": "http://127.0.0.1:3001/structure_analysis/",
+  "buildWorker": "spaceSolver.worker-B15gD_sM.js",
+  "requests": 22,
+  "first": {
+    "stiffnessReused": false,
+    "diagnosticsReused": false,
+    "denseFactorReused": false,
+    "preconditionerReused": false,
+    "stiffnessAssemblies": 1,
+    "matrixDiagnosticsBuilds": 1,
+    "denseFactorizations": 1,
+    "preconditionerBuilds": 0,
+    "solves": 1
+  },
+  "warm": {
+    "stiffnessReused": true,
+    "diagnosticsReused": true,
+    "denseFactorReused": true,
+    "preconditionerReused": false,
+    "stiffnessAssemblies": 1,
+    "matrixDiagnosticsBuilds": 1,
+    "denseFactorizations": 1,
+    "preconditionerBuilds": 0,
+    "solves": 21
+  },
+  "changed": {
+    "stiffnessReused": false,
+    "diagnosticsReused": false,
+    "denseFactorReused": false,
+    "preconditionerReused": false,
+    "stiffnessAssemblies": 1,
+    "matrixDiagnosticsBuilds": 1,
+    "denseFactorizations": 1,
+    "preconditionerBuilds": 0,
+    "solves": 1
+  },
+  "passed": true
+}

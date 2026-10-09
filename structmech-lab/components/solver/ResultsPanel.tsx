@@ -8,6 +8,7 @@ import type { ServiceabilityRow } from '../../utils/serviceabilityChecks';
 type ResultTab = 'controls' | 'envelope' | 'serviceability' | 'reactions' | 'elements' | 'displacements' | 'equilibrium';
 
 interface ResultsPanelProps {
+  embedded?: boolean;
   results: AnalysisResult;
   nodes: SolverNode[];
   elements: SolverElement[];
@@ -98,8 +99,10 @@ const ResultsPanel: React.FC<ResultsPanelProps> = ({
   envelopeRows = [],
   serviceabilityRows = [],
   onActivateAnalysis,
+  embedded = false,
 }) => {
-  const [isOpen, setIsOpen] = useState(false);
+  const [isExpanded, setIsOpen] = useState(false);
+  const isOpen = embedded || isExpanded;
   const [activeTab, setActiveTab] = useState<ResultTab>('reactions');
   const [panelHeight, setPanelHeight] = useState(DEFAULT_HEIGHT);
   const isDragging = useRef(false);
@@ -189,11 +192,11 @@ const ResultsPanel: React.FC<ResultsPanelProps> = ({
 
   return (
     <div
-      className="flex-shrink-0 bg-slate-900 border-t border-slate-700 flex flex-col rounded-b-xl overflow-hidden"
-      style={{ height: isOpen ? panelHeight : MIN_HEIGHT }}
+      className={embedded ? "h-full min-h-0 rounded-lg border border-slate-800 bg-slate-900 flex flex-col overflow-hidden" : "flex-shrink-0 bg-slate-900 border-t border-slate-700 flex flex-col rounded-b-xl overflow-hidden"}
+      style={embedded ? undefined : { height: isOpen ? panelHeight : MIN_HEIGHT }}
     >
       {/* Drag resize handle */}
-      {isOpen && (
+      {isOpen && !embedded && (
         <div
           className="h-1.5 flex-shrink-0 cursor-ns-resize group hover:bg-indigo-500/30 transition-colors flex items-center justify-center"
           onMouseDown={handleDragStart}
@@ -204,19 +207,19 @@ const ResultsPanel: React.FC<ResultsPanelProps> = ({
 
       {/* Handle bar */}
       <div
-        className="h-9 flex-shrink-0 flex items-center gap-2 px-3 cursor-pointer select-none hover:bg-slate-800/60 transition-colors"
-        onClick={() => setIsOpen(!isOpen)}
+        className="shrink-0 flex flex-wrap items-center gap-2 border-b border-slate-800 px-3 py-3 select-none"
+        onClick={embedded ? undefined : () => setIsOpen(!isOpen)}
       >
-        <svg
+        {!embedded && <svg
           className={`w-3.5 h-3.5 text-slate-400 transition-transform duration-300 ${isOpen ? 'rotate-180' : ''}`}
           fill="none" stroke="currentColor" viewBox="0 0 24 24"
         >
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
-        </svg>
+        </svg>}
         <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">计算结果</span>
 
         {isOpen && (
-          <div className="flex gap-1 ml-3">
+          <div className="flex flex-wrap gap-1 sm:ml-3">
             {tabs.map(tab => (
               <button
                 key={tab.key}
@@ -256,7 +259,7 @@ const ResultsPanel: React.FC<ResultsPanelProps> = ({
 
       {/* Content area */}
       {isOpen && (
-        <div className="flex-1 min-h-0 overflow-auto px-3 pb-2">
+        <div className="flex-1 min-h-0 overflow-auto px-3 py-3">
           {!hasResults ? (
             <div className="flex items-center justify-center h-full text-slate-500 text-xs">
               暂无计算结果，请添加荷载后查看

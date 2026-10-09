@@ -1,0 +1,110 @@
+{
+  "generatedAt": "2026-10-09T09:14:42.894Z",
+  "viewport": {
+    "width": 1600,
+    "height": 1100
+  },
+  "buildMain": "index-xNWwFCUR.js",
+  "workers": 1,
+  "requests": [
+    {
+      "id": 2,
+      "kind": "single"
+    },
+    {
+      "id": 3,
+      "kind": "batch",
+      "targets": 7
+    },
+    {
+      "id": 4,
+      "kind": "batch",
+      "targets": 7
+    }
+  ],
+  "responses": [
+    {
+      "id": 2,
+      "ok": true,
+      "preparation": {
+        "stiffnessReused": false,
+        "diagnosticsReused": false,
+        "denseFactorReused": false,
+        "preconditionerReused": false,
+        "stiffnessAssemblies": 1,
+        "matrixDiagnosticsBuilds": 1,
+        "denseFactorizations": 1,
+        "preconditionerBuilds": 0,
+        "solves": 1
+      }
+    },
+    {
+      "id": 3,
+      "ok": true,
+      "batch": {
+        "targetsSolved": 7,
+        "loadCasesSolved": 4,
+        "combinationsSolved": 3,
+        "stiffnessAssemblies": 0,
+        "matrixDiagnosticsBuilds": 1,
+        "denseFactorizations": 1,
+        "preconditionerBuilds": 0,
+        "loadVectorsBuilt": 7,
+        "warnings": [
+          "活载 L: 分析目标 活载 L 没有有效荷载。",
+          "风载 WY: 分析目标 风载 WY 没有有效荷载。",
+          "地震 EX: 分析目标 地震 EX 没有有效荷载。"
+        ]
+      },
+      "preparation": {
+        "stiffnessReused": true,
+        "diagnosticsReused": true,
+        "denseFactorReused": true,
+        "preconditionerReused": false,
+        "stiffnessAssemblies": 1,
+        "matrixDiagnosticsBuilds": 1,
+        "denseFactorizations": 1,
+        "preconditionerBuilds": 0,
+        "solves": 2
+      }
+    },
+    {
+      "id": 4,
+      "ok": true,
+      "batch": {
+        "targetsSolved": 7,
+        "loadCasesSolved": 4,
+        "combinationsSolved": 3,
+        "stiffnessAssemblies": 0,
+        "matrixDiagnosticsBuilds": 1,
+        "denseFactorizations": 1,
+        "preconditionerBuilds": 0,
+        "loadVectorsBuilt": 7,
+        "warnings": [
+          "活载 L: 分析目标 活载 L 没有有效荷载。",
+          "风载 WY: 分析目标 风载 WY 没有有效荷载。",
+          "地震 EX: 分析目标 地震 EX 没有有效荷载。"
+        ]
+      },
+      "preparation": {
+        "stiffnessReused": true,
+        "diagnosticsReused": true,
+        "denseFactorReused": true,
+        "preconditionerReused": false,
+        "stiffnessAssemblies": 1,
+        "matrixDiagnosticsBuilds": 1,
+        "denseFactorizations": 1,
+        "preconditionerBuilds": 0,
+        "solves": 9
+      }
+    }
+  ],
+  "ui": {
+    "targets": 7,
+    "cachedSwitchNoSolve": true,
+    "envelopeSource": true,
+    "staleHidden": true,
+    "recomputed": true,
+    "passed": true
+  }
+}

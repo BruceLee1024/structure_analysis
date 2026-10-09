@@ -1,3 +1,5 @@
+import { globalLoadComponents } from './loadDirection';
+import { getLineLoadRange, integrateInterval, isValidLineLoadRange } from './lineLoads';
 import type { AnalysisResult, Load, ModelIssue, SolverElement, SolverNode } from '../types';
 import type { ResultExtrema } from './resultExtrema';
 import { summarizeIssues } from './modelValidation';
@@ -16,7 +18,9 @@ export interface EquilibriumResidual {
   fyOk: boolean;
   mOk: boolean;
   allOk: boolean;
-  maxResidual: number;
+  maxResidual: number; // Dimensionless maximum normalized residual.
+  forceTolerance: number;
+  momentTolerance: number;
 }
 
 export interface SolverDiagnosticSummary {
@@ -36,7 +40,7 @@ export function computeEquilibriumResidual(
   nodes: SolverNode[],
   loads: Load[],
   elements: SolverElement[],
-  tolerance = 0.05,
+  tolerance = 1e-3,
 ): EquilibriumResidual {
   let extFx = 0;
   let extFy = 0;
@@ -54,14 +58,9 @@ export function computeEquilibriumResidual(
         return;
       }
 
-      const direction = load.direction || 'y';
-      if (direction === 'x') {
-        extFx += load.magnitude;
-        extM += load.magnitude * (node.y - refY);
-      } else {
-        extFy += load.magnitude;
-        extM += -load.magnitude * (node.x - refX);
-      }
+      const force = globalLoadComponents(load);
+      extFx += force.x; extFy += force.y;
+      extM += force.y * (node.x - refX) - force.x * (node.y - refY);
       return;
     }
 
@@ -78,26 +77,24 @@ export function computeEquilibriumResidual(
       return;
     }
 
-    const direction = load.direction || 'y';
+    const unit = globalLoadComponents({ ...load, magnitude: 1 });
     if (load.type === 'distributed' || load.type === 'trapezoidal') {
+      if (!isValidLineLoadRange(load)) return;
       const length = Math.hypot(end.x - start.x, end.y - start.y);
       const w1 = load.magnitude;
       const w2 = load.type === 'trapezoidal' ? load.magnitudeEnd ?? load.magnitude : load.magnitude;
-      const totalForce = (w1 + w2) * length / 2;
-      const centroidFromStart = Math.abs(w1 + w2) > 1e-9
-        ? length * (w1 + 2 * w2) / (3 * (w1 + w2))
-        : length / 2;
-      const t = length > 1e-9 ? centroidFromStart / length : 0.5;
-      const x = start.x + t * (end.x - start.x);
-      const y = start.y + t * (end.y - start.y);
-
-      if (direction === 'x') {
-        extFx += totalForce;
-        extM += totalForce * (y - refY);
-      } else {
-        extFy += totalForce;
-        extM += -totalForce * (x - refX);
-      }
+      const range = getLineLoadRange(load);
+      const loadedLength = (range.end - range.start) * length;
+      const totalForce = (w1 + w2) * loadedLength / 2;
+      // Integrate the first moment directly so opposite-sign intensities with
+      // zero resultant still retain their external couple.
+      const firstMoment = integrateInterval(range.start, range.end, t => {
+        const w = w1 + (w2 - w1) * (t - range.start) / (range.end - range.start);
+        return w * length * (unit.y * (start.x + t * (end.x - start.x) - refX) - unit.x * (start.y + t * (end.y - start.y) - refY));
+      });
+      extFx += totalForce * unit.x;
+      extFy += totalForce * unit.y;
+      extM += firstMoment;
       return;
     }
 
@@ -105,13 +102,9 @@ export function computeEquilibriumResidual(
     const x = start.x + location * (end.x - start.x);
     const y = start.y + location * (end.y - start.y);
 
-    if (direction === 'x') {
-      extFx += load.magnitude;
-      extM += load.magnitude * (y - refY);
-    } else {
-      extFy += load.magnitude;
-      extM += -load.magnitude * (x - refX);
-    }
+    extFx += load.magnitude * unit.x;
+    extFy += load.magnitude * unit.y;
+    extM += load.magnitude * (unit.y * (x - refX) - unit.x * (y - refY));
   });
 
   let reactFx = 0;
@@ -130,7 +123,18 @@ export function computeEquilibriumResidual(
   const sumFx = cleanValue(extFx + reactFx);
   const sumFy = cleanValue(extFy + reactFy);
   const sumM = cleanValue(extM + reactM);
-  const maxResidual = Math.max(Math.abs(sumFx), Math.abs(sumFy), Math.abs(sumM));
+  const radius = Math.max(1,...nodes.map(n=>Math.hypot(n.x-refX,n.y-refY)));
+  const loadScale = loads.reduce((sum,l)=>{
+    if(l.type==='moment')return sum;
+    const el=elements.find(e=>e.id===l.elementId),a=nodes.find(n=>n.id===el?.startNode),b=nodes.find(n=>n.id===el?.endNode);
+    const L=a&&b?Math.hypot(b.x-a.x,b.y-a.y):1;
+    return sum + Math.max(Math.abs(l.magnitude),Math.abs(l.magnitudeEnd??l.magnitude))*(l.type==='distributed'||l.type==='trapezoidal'?L:1);
+  },0);
+  const forceScale=Math.max(1,loadScale,results.reactions.reduce((sum,r)=>sum+Math.abs(r.fx)+Math.abs(r.fy),0));
+  const momentScale=forceScale*radius+loads.filter(l=>l.type==='moment').reduce((sum,l)=>sum+Math.abs(l.magnitude),0);
+  // Separate force and moment units. Absolute floors account for rounded solver output.
+  const forceTolerance=tolerance+1e-7*forceScale, momentTolerance=tolerance*radius+1e-7*momentScale;
+  const maxResidual=Math.max(Math.abs(sumFx)/forceTolerance,Math.abs(sumFy)/forceTolerance,Math.abs(sumM)/momentTolerance);
 
   return {
     extFx: cleanValue(extFx),
@@ -142,11 +146,11 @@ export function computeEquilibriumResidual(
     sumFx,
     sumFy,
     sumM,
-    fxOk: Math.abs(sumFx) < tolerance,
-    fyOk: Math.abs(sumFy) < tolerance,
-    mOk: Math.abs(sumM) < tolerance,
-    allOk: maxResidual < tolerance,
-    maxResidual,
+    fxOk: Math.abs(sumFx) <= forceTolerance,
+    fyOk: Math.abs(sumFy) <= forceTolerance,
+    mOk: Math.abs(sumM) <= momentTolerance,
+    allOk: maxResidual <= 1,
+    maxResidual, forceTolerance, momentTolerance,
   };
 }
 
@@ -192,8 +196,8 @@ export function buildSolverDiagnosticSummary(input: {
 
   const equilibrium = computeEquilibriumResidual(results, nodes, loads, elements);
   const equilibriumText = equilibrium.allOk
-    ? `平衡残差 ${equilibrium.maxResidual.toFixed(3)}，通过`
-    : `平衡残差 ${equilibrium.maxResidual.toFixed(3)}，需复核`;
+    ? `归一化平衡残差 ${equilibrium.maxResidual.toFixed(3)}，通过`
+    : `归一化平衡残差 ${equilibrium.maxResidual.toFixed(3)}，需复核`;
 
   return {
     modelStatus,

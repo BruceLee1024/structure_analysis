@@ -1,3 +1,4 @@
+import { geometryCountStatus } from './geometryTheory';
 export interface QuizOption {
   id: string;
   label: string;
@@ -23,14 +24,8 @@ interface GeometryQuizInput {
   supportLinks?: number;
 }
 
-const getGeometryStatus = (w: number) => {
-  if (w > 0) return { label: '几何可变体系', reason: '自由度还没被约束完，结构会发生机构运动。' };
-  if (w === 0) return { label: '满足静定必要条件', reason: '数量条件刚好，但仍要继续检查布置是否瞬变。' };
-  return { label: `${Math.abs(w)}次超静定`, reason: '约束数量超过独立平衡方程，需要引入变形协调条件。' };
-};
-
 export function getGeometryQuiz(input: GeometryQuizInput): QuizQuestion[] {
-  const status = getGeometryStatus(input.w);
+  const status = geometryCountStatus(input.w);
   const isRigid = input.mode === 'rigid';
   const formula = isRigid ? 'W = 3m - 2h - r' : 'W = 2j - b - r';
   const substitution = isRigid
@@ -44,7 +39,7 @@ export function getGeometryQuiz(input: GeometryQuizInput): QuizQuestion[] {
       options: [
         { id: 'mechanism', label: '几何可变体系' },
         { id: 'determinate-condition', label: '满足静定必要条件' },
-        { id: 'indeterminate', label: input.w < 0 ? status.label : '超静定体系' },
+        { id: 'indeterminate', label: input.w < 0 ? status.label : '已确认超静定体系' },
       ],
       correctOptionId: input.w > 0 ? 'mechanism' : input.w === 0 ? 'determinate-condition' : 'indeterminate',
       explanation: `${formula} 的计算结果为 ${input.w}。${status.reason}`,
@@ -59,7 +54,7 @@ export function getGeometryQuiz(input: GeometryQuizInput): QuizQuestion[] {
         { id: 'unstable', label: '结构一定几何可变' },
       ],
       correctOptionId: 'necessary',
-      explanation: 'W = 0 只说明数量刚好。若三链杆共点、平行，或桁架没有形成稳定三角形，仍可能是瞬变体系。',
+      explanation: 'W = 0 只说明数量刚好。约束布置不当时，仍可能存在常变或瞬变机构。须检查约束的独立性，不能只数杆件。',
       concept: '必要条件',
     },
     isRigid
@@ -87,5 +82,15 @@ export function getGeometryQuiz(input: GeometryQuizInput): QuizQuestion[] {
           explanation: '二力杆只能沿杆轴方向限制一个相对位移，因此桁架公式中每根杆只扣除 1 个约束。',
           concept: '杆件口径',
         },
+    {
+      id: 'geometry-negative-not-stable', prompt: 'W = −1，未检查几何布置时，能否直接判为一次超静定？',
+      options: [{ id: 'yes', label: '能，约束越多越稳定' }, { id: 'check', label: '不能，须先证明几何不变' }, { id: 'mechanism', label: '一定是常变体系' }],
+      correctOptionId: 'check', explanation: '机构与多余约束可能同时存在。只有确认几何不变，才有多余约束数 s = −W = 1。', concept: '判定前提',
+    },
+    {
+      id: 'geometry-compound-hinge', prompt: '同一复铰连接 3 个刚片，应折算为几个单铰？',
+      options: [{ id: 'one', label: '1 个' }, { id: 'two', label: '2 个' }, { id: 'three', label: '3 个' }],
+      correctOptionId: 'two', explanation: '连接 k 个刚片的复铰等效于 k−1 个单铰，因此提供 2(k−1) = 4 个标量约束。', concept: '复铰计数',
+    },
   ];
 }

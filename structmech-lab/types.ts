@@ -57,8 +57,13 @@ export interface Load {
   type: 'point' | 'distributed' | 'trapezoidal' | 'moment';
   magnitude: number;
   magnitudeEnd?: number;
-  direction?: 'x' | 'y';
+  direction?: 'x' | 'y' | 'angle';
+  angle?: number;
   location?: number;
+  // Line-load bounds measured from the element start, as fractions of its length.
+  // Omitted bounds retain the legacy whole-element load.
+  startLocation?: number;
+  endLocation?: number;
 }
 
 export interface LoadCase {

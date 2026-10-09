@@ -69,4 +69,56 @@ describe('sparseMatrix', () => {
     expect(result.converged).toBe(false);
     expect(result.warnings.some(warning => warning.includes('not positive definite'))).toBe(true);
   });
+
+  it('does not claim convergence when only the scaled system meets tolerance', () => {
+    const matrix = cooToCsr(2, [0, 0, 1, 1], [0, 1, 0, 1], [1e12, 0.1, 0.1, 1]);
+    const result = pcgSolve(matrix, new Float64Array([1, 1]), {
+      tolerance: 1e-6, maxIterations: 1, preconditioner: 'symmetric-diagonal',
+    });
+    expect(result.relativeResidual).toBeGreaterThan(1e-6);
+    expect(result.converged).toBe(false);
+  });
+
+  it('labels the spectral estimate without presenting it as a condition number', () => {
+    const matrix = cooToCsr(2, [0, 0, 1, 1], [0, 1, 0, 1], [1, -0.999999, -0.999999, 1]);
+    const diagnostics = analyzeCsrMatrix(matrix, { estimateSpectralRadius: true });
+    expect(diagnostics.estimatedScaledSpectralRadius).toBeCloseTo(1.999999, 6);
+    expect(diagnostics).not.toHaveProperty('estimatedCondition');
+  });
+
+  it('continues after scaled convergence until the original system passes', () => {
+    const matrix = cooToCsr(2, [0, 0, 1, 1], [0, 1, 0, 1], [1e12, 0.1, 0.1, 1]);
+    const result = pcgSolve(matrix, new Float64Array([1, 1]), {
+      tolerance: 1e-6, maxIterations: 20, preconditioner: 'symmetric-diagonal',
+    });
+    expect(result.converged).toBe(true);
+    expect(result.iterations).toBeGreaterThan(1);
+    expect(result.relativeResidual).toBeLessThanOrEqual(1e-6);
+  });
+
+  it('does not mistake small positive curvature for singularity at tiny load scale', () => {
+    const matrix = cooToCsr(2, [0, 0, 1, 1], [0, 1, 0, 1], [4, 1, 1, 3]);
+    const result = pcgSolve(matrix, new Float64Array([1e-18, 2e-18]), { tolerance: 1e-12 });
+    expect(result.converged).toBe(true);
+    expect(result.relativeResidual).toBeLessThanOrEqual(1e-12);
+    expect(result.x[0] / 1e-18).toBeCloseTo(1 / 11, 12);
+  });
+
+  it('keeps diagnostics from changing the iteration outcome', () => {
+    const size = 25;
+    const rows: number[] = [];
+    const cols: number[] = [];
+    const values: number[] = [];
+    for (let index = 0; index < size; index++) {
+      rows.push(index); cols.push(index); values.push(10 ** (index / 3));
+    }
+    const matrix = cooToCsr(size, rows, cols, values);
+    const rhs = new Float64Array(size).fill(1);
+    const options = { preconditioner: 'none' as const, tolerance: 1e-10, maxIterations: 300 };
+    const basic = pcgSolve(matrix, rhs, options);
+    const extended = pcgSolve(matrix, rhs, { ...options, trackResidualHistory: true });
+    expect(extended.converged).toBe(basic.converged);
+    expect(extended.iterations).toBe(basic.iterations);
+    expect(Array.from(extended.x)).toEqual(Array.from(basic.x));
+  });
 });

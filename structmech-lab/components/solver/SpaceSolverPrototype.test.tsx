@@ -127,7 +127,12 @@ test('marks the solved result stale after model edits until calculate is pressed
 
   fireEvent.click(screen.getByRole('button', { name: '重新计算结构' }));
 
-  await waitFor(() => expect(screen.getByTestId('space-model-viewport')).not.toHaveAttribute('data-result-elements', '0'));
+  // The new isolated free node makes the recalculated model invalid.
+  await waitFor(() => expect(screen.queryByText('模型已修改')).not.toBeInTheDocument());
+  expect(screen.getByTestId('space-model-viewport')).toHaveAttribute('data-result-elements', '0');
+  fireEvent.click(screen.getByRole('button', { name: /结果.*摘要/ }));
+  expect(screen.getByRole('alert')).toHaveTextContent('求解失败，结果不可用');
+  expect(screen.queryByRole('tab', { name: /节点位移/ })).not.toBeInTheDocument();
 });
 
 test('lets users control whether deformed geometry is displayed', async () => {
@@ -252,7 +257,38 @@ test('exposes professional static analysis controls for combinations, self weigh
   fireEvent.click(screen.getByLabelText('起点 ry'));
 
   fireEvent.click(screen.getByRole('button', { name: /结果.*摘要/ }));
+  expect(screen.getByRole('status')).toHaveTextContent('模型已修改，结果和包络已暂停展示');
+  fireEvent.click(screen.getByRole('button', { name: '重新计算结构' }));
   expect(await screen.findByRole('tab', { name: /包络/ })).toBeInTheDocument();
   expect(screen.getByText('结果状态')).toBeInTheDocument();
   expect(screen.getByRole('tab', { name: /平衡/ })).toBeInTheDocument();
+});
+
+test('computes all scenarios, switches cached results, traces envelope sources and invalidates the entire batch', async () => {
+  render(<SpaceSolverPrototype onSwitchToPlane={vi.fn()} />);
+  await screen.findByRole('button', { name: '计算结构' });
+  fireEvent.click(screen.getByRole('button', { name: '计算全部工况与组合' }));
+  expect(await screen.findByText('批量分析：4 个工况 · 3 个组合')).toBeInTheDocument();
+  const select = screen.getByLabelText('查看已计算目标');
+  expect(select.querySelectorAll('option')).toHaveLength(7);
+  fireEvent.change(select, { target: { value: 'loadCase:live' } });
+  expect(select).toHaveValue('loadCase:live');
+  expect(screen.getByRole('status')).toHaveTextContent('没有有效荷载');
+  expect(screen.queryByText('模型已修改')).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole('tab', { name: /包络/ }));
+  expect(screen.getByText(/包络包含 7\/7 个有效目标/)).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: '查看位移最大绝对值来源：承载组合 1.2D+1.4L' }));
+  expect(select).toHaveValue('combination:uls');
+  expect(screen.queryByText('模型已修改')).not.toBeInTheDocument();
+  expect(screen.getByTestId('space-model-viewport')).not.toHaveAttribute('data-result-elements', '0');
+  fireEvent.click(screen.getByRole('button', { name: /荷载.*批量/ }));
+  fireEvent.click(screen.getByLabelText('计入结构自重'));
+  fireEvent.click(screen.getByRole('button', { name: /结果.*摘要/ }));
+  expect(screen.getByRole('status')).toHaveTextContent('结果和包络已暂停展示');
+  expect(screen.queryByRole('tab', { name: /包络/ })).not.toBeInTheDocument();
+  expect(screen.getByLabelText('查看已计算目标')).toBeDisabled();
+  expect(screen.getByTestId('space-model-viewport')).toHaveAttribute('data-result-elements', '0');
+  fireEvent.click(screen.getByRole('button', { name: '计算全部工况与组合' }));
+  await waitFor(() => expect(screen.getByLabelText('查看已计算目标')).toBeEnabled());
+  expect(screen.queryByRole('status')).not.toBeInTheDocument();
 });

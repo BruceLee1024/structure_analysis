@@ -40,3 +40,14 @@ describe('model validation', () => {
     expect(issues.map(issue => issue.id)).toContain('deflection-limit-ratio');
   });
 });
+
+test.each([
+  { startLocation: 0.5, endLocation: 0.5 },
+  { startLocation: 0.6, endLocation: 0.2 },
+  { startLocation: -0.1, endLocation: 0.5 },
+  { startLocation: 0, endLocation: 1.1 },
+  { startLocation: NaN, endLocation: 1 },
+])('rejects invalid partial line-load bounds: %j', range => {
+  const loads: SolverParams['loads'] = [{ id: 'q', type: 'distributed', elementId: 1, magnitude: -3, ...range }];
+  expect(validateModel({ ...baseParams, loads }, loads)).toContainEqual(expect.objectContaining({ id: 'load-range-q', severity: 'error' }));
+});

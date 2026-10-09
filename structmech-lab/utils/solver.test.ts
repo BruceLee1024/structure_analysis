@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import type { Load, SolverElement, SolverNode } from '../types';
 import { calculateExactValues, getDeflectionCorrectionRigidity, solveStructure } from './solver';
+import { computeEquilibriumResidual } from './solverDiagnostics';
+import { autoConnectNodes } from './geometryGenerator';
 
 const E = 200;
 const A = 100;
@@ -45,6 +47,66 @@ const simplySupportedResult = (loads: Load[]) => {
 };
 
 describe('solveStructure analytic beam benchmarks', () => {
+  it('matches the pictured cantilever with a left-half UDL and a free-end point load', () => {
+    const loads: Load[] = [
+      { id: 'q', elementId: 1, type: 'distributed', magnitude: -3, direction: 'y', startLocation: 0, endLocation: 0.5 },
+      { id: 'p', elementId: 1, type: 'point', magnitude: -2, direction: 'y', location: 1 },
+    ];
+    const result = cantileverResult(loads);
+    expect(result.error).toBeUndefined();
+    expect(result.reactions[0]).toMatchObject({ fx: 0, fy: 8, m: 14 });
+    for (const [x, moment, shear, deflection] of [
+      [0, -14, 8, 0], [2, -4, 2, -0.4833], [3, -2, 2, -0.9250], [4, 0, 2, -1.4167],
+    ]) {
+      const station = result.elements[0].stations.find(s => s.x === x)!;
+      expect(station.moment).toBeCloseTo(moment, 4);
+      expect(station.shear).toBeCloseTo(shear, 4);
+      expect(station.deflectionY).toBeCloseTo(deflection, 4);
+    }
+    const nodes: SolverNode[] = [
+      { id: 1, x: 0, y: 0, restraints: [true, true, true] },
+      { id: 2, x: 4, y: 0, restraints: [false, false, false] },
+    ];
+    expect(computeEquilibriumResidual(result, nodes, loads, [element()]).allOk).toBe(true);
+  });
+
+  it('keeps partial-load results after splitting at a free intermediate node', () => {
+    const nodes: SolverNode[] = [
+      { id: 1, x: 0, y: 0, restraints: [true, true, true] },
+      { id: 2, x: 4, y: 0, restraints: [false, false, false] },
+      { id: 3, x: 2, y: 0, restraints: [false, false, false] },
+    ];
+    const loads: Load[] = [
+      { id: 'q', type: 'distributed', elementId: 1, magnitude: -3, startLocation: 0.25, endLocation: 0.75 },
+      { id: 'p', type: 'point', elementId: 1, magnitude: -2, location: 0.5 },
+    ];
+    const original = solveStructure(nodes.slice(0, 2), [element()], loads);
+    const split = autoConnectNodes(nodes, [element()], loads);
+    const result = solveStructure(split.nodes, split.elements, split.loads);
+    expect(split.loads.filter(l => l.type === 'point')).toHaveLength(1);
+    expect(result.reactions).toEqual(original.reactions);
+    expect(result.maxDeflection).toBeCloseTo(original.maxDeflection, 4);
+    expect(computeEquilibriumResidual(result, split.nodes, split.loads, split.elements).allOk).toBe(true);
+  });
+
+  it('uses the actual interval for a partial triangular line load', () => {
+    const result = cantileverResult([{ id: 'q', elementId: 1, type: 'trapezoidal', magnitude: 0, magnitudeEnd: -6, startLocation: 0, endLocation: 0.5 }]);
+    expect(result.reactions[0]).toMatchObject({ fy: 6, m: 8 });
+    expect(result.elements[0].stations.find(s => s.x === 3)?.moment).toBe(0);
+    expect(result.elements[0].stations.find(s => s.x === 3)?.shear).toBe(0);
+  });
+
+  it('balances partial loads on members with both bending ends released', () => {
+    const nodes: SolverNode[] = [
+      { id: 1, x: 0, y: 0, restraints: [true, true, false] },
+      { id: 2, x: 4, y: 0, restraints: [false, true, false] },
+    ];
+    const result = solveStructure(nodes, [element({ releaseStart: true, releaseEnd: true })],
+      [{ id: 'q', type: 'distributed', elementId: 1, magnitude: -3, startLocation: 0, endLocation: 0.5 }]);
+    expect(result.reactions[0].fy).toBe(4.5);
+    expect(result.reactions[1].fy).toBe(1.5);
+    expect(result.elements[0].stations.at(-1)?.moment).toBe(0);
+  });
   it('matches cantilever tip deflection for a nodal point load', () => {
     const result = cantileverResult([{ id: 'p1', nodeId: 2, type: 'point', magnitude: -10, direction: 'y' }]);
     const tip = result.elements[0].stations.find(station => station.x === 4);

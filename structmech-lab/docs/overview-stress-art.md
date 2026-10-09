@@ -1,0 +1,7 @@
+# Overview stress-field artwork
+
+Generated using built-in image_gen on 2026-10-09. Asset: `../assets/overview-stress-field-v2.png`. This is conceptual artwork, not a solver result. Animated particles are rendered separately by the homepage.
+
+## Final prompt
+
+Use case: stylized-concept. Asset type: premium structural engineering web app hero artwork, wide landscape 16:9. A spectacular scientific digital twin of a steel bridge and arch-like load-bearing space frame, suspended in deep midnight navy void. The structure fills the RIGHT two thirds; LEFT third mostly empty near-black navy for live HTML copy. Finite element triangular mesh clearly visible across solid structural surfaces, stress contour colors flowing from cobalt and cyan through mint and golden amber into small coral-red concentrated zones, polished luminous wireframe edges. Thousands of fine cyan photon particles form elegant arcing trails around the structure, not noisy sparks. Precise architectural engineering aesthetic, cinematic volumetric light, restrained bloom, powerful depth, floating technical slices, small crisp nodes. Ground fades into dark coordinate-free particle field. Luxurious contemporary scientific visualization, exceptional clarity and contrast, no people. NO text, NO letters, NO UI, NO numbers, NO logos, NO watermark. Artistic conceptual stress illustration, not a quantitative simulation. Keep warm stress colors on the physical structural members, avoid rainbow background. Background #07101e.

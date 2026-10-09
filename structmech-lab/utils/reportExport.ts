@@ -52,7 +52,7 @@ const springText = (springStiffness?: [number, number, number]) => {
   ].join(', ');
 };
 
-const loadDirectionText = (load: Load) => load.type === 'moment' ? '-' : load.direction ?? '-';
+const loadDirectionText = (load: Load) => load.type === 'moment' ? '-' : load.direction === 'angle' ? `${load.angle}°` : load.direction ?? '-';
 
 function table(headers: string[], rows: (string | number)[][]) {
   const head = `| ${headers.map(md).join(' | ')} |`;
@@ -106,7 +106,9 @@ export function createCalculationReport(input: CalculationReportInput) {
     targetText(load),
     loadValueText(load),
     loadDirectionText(load),
-    load.location !== undefined ? fmt(load.location, 3) : '-',
+    load.type === 'distributed' || load.type === 'trapezoidal'
+      ? `${fmt(load.startLocation ?? 0, 3)} -> ${fmt(load.endLocation ?? 1, 3)}`
+      : load.location !== undefined ? fmt(load.location, 3) : '-',
   ]);
 
   const controlRows = [

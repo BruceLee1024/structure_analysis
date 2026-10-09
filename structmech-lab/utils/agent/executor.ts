@@ -111,7 +111,7 @@ export function applyAgentActions(params: SolverParams, actions: AgentAction[]):
           releaseEnd: Boolean(e.releaseEnd),
         }));
 
-        const loads: Load[] = payloadLoads.map((l: { type?: string; magnitude?: number; direction?: string; elementId?: number; nodeId?: number; location?: number }, idx: number) => ({
+        const loads: Load[] = payloadLoads.map((l: { type?: string; magnitude?: number; direction?: string; elementId?: number; nodeId?: number; location?: number; startLocation?: number; endLocation?: number }, idx: number) => ({
           id: `vision-${idx + 1}`,
           type: (['point', 'distributed', 'moment'].includes(String(l.type)) ? l.type : 'point') as Load['type'],
           magnitude: parseNumeric(l.magnitude, -10),
@@ -119,6 +119,8 @@ export function applyAgentActions(params: SolverParams, actions: AgentAction[]):
           elementId: typeof l.elementId === 'number' ? l.elementId : elements[0]?.id,
           nodeId: typeof l.nodeId === 'number' ? l.nodeId : undefined,
           location: clampLocation(parseNumeric(l.location, 0.5)),
+          startLocation: l.startLocation,
+          endLocation: l.endLocation,
           loadCaseId: currentLoadCaseId,
         }));
 
@@ -178,6 +180,8 @@ export function applyAgentActions(params: SolverParams, actions: AgentAction[]):
         direction: (action.payload.direction as 'x' | 'y') ?? 'y',
         elementId: targetElementId(draft, requestedSpan),
         location: clampLocation(parseNumeric(action.payload.location, 0.5)),
+        startLocation: action.payload.startLocation,
+        endLocation: action.payload.endLocation,
         loadCaseId: currentLoadCaseId || DEFAULT_LOAD_CASE_ID,
       };
       draft = { ...draft, loads: [...draft.loads, load] };
@@ -213,6 +217,8 @@ export function applyAgentActions(params: SolverParams, actions: AgentAction[]):
                   action.payload.locationDelta !== undefined
                     ? clampLocation((existing.location ?? 0.5) + parseNumeric(action.payload.locationDelta, 0))
                     : clampLocation(parseNumeric(action.payload.location, existing.location ?? 0.5)),
+                startLocation: action.payload.startLocation ?? existing.startLocation,
+                endLocation: action.payload.endLocation ?? existing.endLocation,
                 direction: (action.payload.direction as 'x' | 'y') ?? existing.direction,
                 elementId:
                   action.payload.targetSpan !== undefined

@@ -1,0 +1,60 @@
+import React from 'react';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { createStorageMock } from '../../tests/storageMock';
+import StaticPlanar from './StaticPlanar';
+import InfluenceWorkspace from '../InfluenceWorkspace';
+const { sync } = vi.hoisted(() => ({ sync: vi.fn() }));
+vi.mock('../../hooks/useAIEngine', () => ({ useAIEngine: () => ({ sync }) }));
+vi.mock('../AITutor', () => ({ default: ({ context }: { context: string }) => <div data-testid="context">{context}</div> }));
+vi.mock('../ui/ProgressBar', () => ({ default: () => null }));
+beforeEach(() => { vi.stubGlobal('localStorage', createStorageMock()); sync.mockClear(); });
+afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
+const field = (name: string, value: string) => fireEvent.change(screen.getByLabelText(name), { target: { value } });
+const data = () => sync.mock.lastCall![1];
+it('刚架支持不同杆件及斜向荷载编辑，反力、图表与 AI 上下文同步', () => {
+  render(<StaticPlanar kind="frame" />);
+  expect(data().Ay).toBeCloseTo(55); expect(data().By).toBeCloseTo(65);
+  field('荷载 1 杆件', '2'); field('荷载 1 方向', 'up'); field('荷载 1 位置', '2');
+  expect(data().Ay).toBeCloseTo(60); expect(data().By).toBeCloseTo(50);
+  field('荷载 1 方向', 'custom'); field('荷载 1 角度', '135');
+  expect(screen.getByTestId('context')).toHaveTextContent('右柱');
+  expect(screen.getByTestId('context')).toHaveTextContent('θ=135°');
+  expect(screen.getByRole('img', { name: '轴力图' })).toBeInTheDocument();
+});
+it('三铰拱可叠加局部荷载，非法铰上力偶提示后仍可修改参数恢复', () => {
+  render(<StaticPlanar kind="arch" />);
+  expect(data().M).toBe(0);
+  field('新增荷载类型', 'moment'); fireEvent.click(screen.getByRole('button', { name: '新增荷载' }));
+  expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  field('荷载 2 位置', '10');
+  expect(screen.getByRole('alert')).toHaveTextContent('理想铰');
+  field('荷载 2 位置', '5');
+  expect(screen.queryByRole('alert')).not.toBeInTheDocument(); expect(data().M).toBeGreaterThan(0);
+  fireEvent.click(screen.getByRole('button', { name: '删除荷载 2' })); expect(data().M).toBe(0);
+});
+it('组合结构任意新增荷载并可全部删除，约束类型与计算一致', () => {
+  render(<StaticPlanar kind="composite" />);
+  expect(screen.getByTestId('context')).toHaveTextContent('A 固定端'); expect(data().MA).toBeCloseTo(240);
+  fireEvent.click(screen.getByRole('button', { name: '删除荷载 1' })); fireEvent.click(screen.getByRole('button', { name: '删除荷载 1' }));
+  expect(data()).toMatchObject({ M: 0, V: 0, N: 0 });
+  fireEvent.keyDown(screen.getByRole('button', { name: /在横梁/ }), { key: 'Enter' });
+  expect(screen.getByLabelText('荷载 1 杆件')).toHaveValue('1'); expect(data().M).toBeGreaterThan(0);
+});
+it('影响线应用的多个任意荷载取代写死数据，目标与方向可切换', () => {
+  render(<InfluenceWorkspace mode="application" />);
+  expect(data().response).toBeCloseTo(100);
+  field('新增荷载类型', 'uniform'); fireEvent.click(screen.getByRole('button', { name: '新增荷载' }));
+  field('荷载 2 起点', '0'); field('荷载 2 终点', '4'); field('荷载 2 强度', '3');
+  expect(data().response).toBeCloseTo(114.4);
+  field('荷载 2 方向', 'right'); field('分析目标', 'Nc');
+  expect(data().response).toBeCloseTo(0); field('荷载 2 终点', '6'); expect(data().response).toBeCloseTo(6);
+});
+it('包络图支持不等荷载与独立间距，出跨时当前结果清零，负荷载有负包络', () => {
+  render(<InfluenceWorkspace mode="envelope" />);
+  field('荷载 1 大小', '20'); field('荷载 1 方向', 'up');
+  expect(data().min).toBeLessThan(0);
+  fireEvent.change(screen.getByLabelText('荷载组起点'), { target: { value: '11' } }); fireEvent.blur(screen.getByLabelText('荷载组起点'));
+  expect(data().response).toBe(0);
+  expect(screen.getByRole('button', { name: '定位当前最不利荷载位置' })).toBeInTheDocument();
+});

@@ -1,4 +1,6 @@
+import { globalLoadComponents } from './loadDirection';
 import { SolverNode, SolverElement, Load, AnalysisResult, ElementResult, StiffnessType } from '../types';
+import { getLineLoadRange, integrateInterval, isValidLineLoadRange } from './lineLoads';
 
 const cleanValue = (val: number) => {
     if (Math.abs(val) < 1e-9) return 0;
@@ -111,14 +113,9 @@ const getLocalLoadComponents = (load: Load, c: number, s: number) => {
     let magX = 0;
     let magY = 0;
     if (load.type === 'distributed' || load.type === 'trapezoidal' || load.type === 'point') {
-        const dir = load.direction || 'y';
-        if (dir === 'x') {
-            magX = load.magnitude * c;
-            magY = load.magnitude * -s;
-        } else {
-            magX = load.magnitude * s;
-            magY = load.magnitude * c;
-        }
+        const force = globalLoadComponents(load);
+        magX = force.x * c + force.y * s;
+        magY = -force.x * s + force.y * c;
     }
     return { magX, magY };
 };
@@ -135,24 +132,23 @@ const computeFixedEndForces = (load: Load, L: number, c: number, s: number, rele
     let m1 = 0, m2 = 0, v1 = 0, v2 = 0, fx1 = 0, fx2 = 0;
     const locParam = load.location !== undefined ? load.location : 0.5;
 
-    if (load.type === 'distributed') {
-        const { magX: wx, magY: wy } = getLocalLoadComponents(load, c, s);
-        m1 = -wy * L * L / 12; m2 = wy * L * L / 12;
-        v1 = -wy * L / 2; v2 = -wy * L / 2;
-        fx1 = -wx * L / 2; fx2 = -wx * L / 2;
-    } else if (load.type === 'trapezoidal') {
+    if (load.type === 'distributed' || load.type === 'trapezoidal') {
+        if (!isValidLineLoadRange(load)) return createVector(6);
+        const { start: startRatio, end: endRatio } = getLineLoadRange(load);
+        const a = startRatio * L, b = endRatio * L;
         const { start, end } = getLocalLoadComponentPair(load, c, s);
-        const wx1 = start.magX;
-        const wx2 = end.magX;
-        const wy1 = start.magY;
-        const wy2 = end.magY;
-
-        v1 = -L * (7 * wy1 + 3 * wy2) / 20;
-        v2 = -L * (3 * wy1 + 7 * wy2) / 20;
-        m1 = -L * L * (3 * wy1 + 2 * wy2) / 60;
-        m2 = L * L * (2 * wy1 + 3 * wy2) / 60;
-        fx1 = -L * (7 * wx1 + 3 * wx2) / 20;
-        fx2 = -L * (3 * wx1 + 7 * wx2) / 20;
+        const q = (x: number, axis: 'magX' | 'magY') => start[axis] + (end[axis] - start[axis]) * (x - a) / (b - a);
+        fx1 = -integrateInterval(a, b, x => q(x, 'magX') * (1 - x / L));
+        fx2 = -integrateInterval(a, b, x => q(x, 'magX') * x / L);
+        v1 = -integrateInterval(a, b, x => { const t = x / L; return q(x, 'magY') * (1 - 3 * t * t + 2 * t * t * t); });
+        v2 = -integrateInterval(a, b, x => { const t = x / L; return q(x, 'magY') * (3 * t * t - 2 * t * t * t); });
+        m1 = -integrateInterval(a, b, x => { const t = x / L; return q(x, 'magY') * L * (t - 2 * t * t + t * t * t); });
+        m2 = -integrateInterval(a, b, x => { const t = x / L; return q(x, 'magY') * L * (-t * t + t * t * t); });
+        if (releaseStart && releaseEnd) {
+            v1 = -integrateInterval(a, b, x => q(x, 'magY') * (1 - x / L));
+            v2 = -integrateInterval(a, b, x => q(x, 'magY') * x / L);
+            return [fx1, v1, 0, fx2, v2, 0];
+        }
     } else if (load.type === 'point') {
         const a = locParam * L; const b = L - a;
         const { magX: Px, magY: Py } = getLocalLoadComponents(load, c, s);
@@ -205,9 +201,22 @@ const calculateLoadDeflectionCorrection = (
     if (flexuralRigidity <= 0) return 0;
 
     return elementLoads.reduce((sum, load) => {
-        if (load.type === 'distributed') {
-            const { magY } = getLocalLoadComponents(load, c, s);
-            return sum + magY * x * x * (L - x) * (L - x) / (24 * flexuralRigidity);
+        if (load.type === 'distributed' || load.type === 'trapezoidal') {
+            if (!isValidLineLoadRange(load)) return sum;
+            const range = getLineLoadRange(load);
+            const a = range.start * L, b = range.end * L;
+            const { start, end } = getLocalLoadComponentPair(load, c, s);
+            const correction = (position: number) => {
+                const q = start.magY + (end.magY - start.magY) * (position - a) / (b - a);
+                const right = L - position;
+                if (x <= position) {
+                    return q * right * right * x * x * (3 * position * L - (L + 2 * position) * x) / (6 * flexuralRigidity * L ** 3);
+                }
+                const distance = L - x;
+                return q * position * position * distance * distance * (3 * right * L - (L + 2 * right) * distance) / (6 * flexuralRigidity * L ** 3);
+            };
+            const split = Math.max(a, Math.min(b, x));
+            return sum + integrateInterval(a, split, correction) + integrateInterval(split, b, correction);
         }
 
         if (load.type === 'point') {
@@ -259,17 +268,20 @@ export const calculateExactValues = (
         
         const { magX, magY } = getLocalLoadComponents(l, c, s);
 
-        if (l.type === 'distributed') {
-             N_x -= magX * x;
-             V_x += magY * x;
-             M_x += magY * x * x / 2;
-        } else if (l.type === 'trapezoidal') {
+        if (l.type === 'distributed' || l.type === 'trapezoidal') {
+             if (!isValidLineLoadRange(l)) return;
+             const range = getLineLoadRange(l);
+             const a = range.start * L, b = range.end * L;
+             const length = Math.max(0, Math.min(x, b) - a);
              const { start, end } = getLocalLoadComponentPair(l, c, s);
-             const dX = end.magX - start.magX;
-             const dY = end.magY - start.magY;
-             N_x -= start.magX * x + dX * x * x / (2 * L);
-             V_x += start.magY * x + dY * x * x / (2 * L);
-             M_x += start.magY * x * x / 2 + dY * x * x * x / (6 * L);
+             const slopeX = (end.magX - start.magX) / (b - a);
+             const slopeY = (end.magY - start.magY) / (b - a);
+             const forceX = start.magX * length + slopeX * length * length / 2;
+             const forceY = start.magY * length + slopeY * length * length / 2;
+             const firstMomentY = start.magY * length * length / 2 + slopeY * length ** 3 / 3;
+             N_x -= forceX;
+             V_x += forceY;
+             M_x += forceY * (x - a) - firstMomentY;
         } else {
              if (x > loc + 1e-6) { 
                  if (l.type === 'point') {
@@ -293,6 +305,7 @@ export const calculateExactValues = (
 
 
 export const solveStructure = (nodes: SolverNode[], elements: SolverElement[], loads: Load[], stiffnessType: StiffnessType = 'Elastic'): AnalysisResult => {
+  if (loads.some(load => load.type !== 'moment' && load.direction === 'angle' && !Number.isFinite(load.angle))) return { elements: [], reactions: [], displacements: [], maxDeflection: 0, error: '斜向荷载缺少有效的方向角度。' };
   const nNodes = nodes.length;
   const dofPerNode = 3;
   const totalDOF = nNodes * dofPerNode;
@@ -368,9 +381,9 @@ export const solveStructure = (nodes: SolverNode[], elements: SolverElement[], l
              if (load.type === 'moment') {
                  F_global[idx + 2] += load.magnitude;
              } else {
-                const dir = load.direction || 'y';
-                if (dir === 'x') F_global[idx] += load.magnitude;
-                else F_global[idx + 1] += load.magnitude; 
+                const force = globalLoadComponents(load);
+                F_global[idx] += force.x;
+                F_global[idx + 1] += force.y;
              }
          }
          return;
@@ -516,6 +529,13 @@ export const solveStructure = (nodes: SolverNode[], elements: SolverElement[], l
       const plotPoints = [];
       const criticalX = new Set([0, L]);
       elLoads.forEach(l => {
+          if (l.type === 'distributed' || l.type === 'trapezoidal') {
+              if (!isValidLineLoadRange(l)) return;
+              const range = getLineLoadRange(l);
+              criticalX.add(range.start * L);
+              criticalX.add(range.end * L);
+              return;
+          }
           const loc = (l.location !== undefined ? l.location : 0.5) * L;
           if(loc > 0 && loc < L) {
               criticalX.add(loc);

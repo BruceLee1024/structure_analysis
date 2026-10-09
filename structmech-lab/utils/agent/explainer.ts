@@ -1,3 +1,4 @@
+import { solverLoadAngle } from '../loadDirection';
 import { StructureType, type AnalysisResult, type Load, type SolverElement, type SolverNode, type SolverParams } from '@/types';
 import { sendChatCompletion, sendChatCompletionStream } from '@/utils/aiClient';
 import { buildModelSummary, describeModelSummary } from './modelSummary';
@@ -65,7 +66,7 @@ function loadText(load: Load, params: SolverParams): string {
       ? '跨中'
       : `${Math.round((load.location ?? 0.5) * 100)}% 跨长处`
     : '';
-  const directionText = load.direction === 'x' ? (load.magnitude >= 0 ? '向右' : '向左') : load.magnitude >= 0 ? '向上' : '向下';
+  const directionText = load.direction === 'angle' ? `θ = ${solverLoadAngle(load)}°` : load.direction === 'x' ? (load.magnitude >= 0 ? '向右' : '向左') : load.magnitude >= 0 ? '向上' : '向下';
   return `${targetText}${locationText}的 ${Math.abs(load.magnitude)} kN ${directionText}集中力`;
 }
 

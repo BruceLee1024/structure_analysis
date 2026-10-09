@@ -21,7 +21,7 @@ const emptyResults: AnalysisResult = {
 describe('computeEquilibriumResidual', () => {
   it('balances a nodal vertical load against a support reaction', () => {
     const check = computeEquilibriumResidual(
-      { ...emptyResults, reactions: [{ nodeId: 1, fx: 0, fy: 10, m: -40 }] },
+      { ...emptyResults, reactions: [{ nodeId: 1, fx: 0, fy: 10, m: 40 }] },
       nodes,
       [{ id: 'p1', nodeId: 2, type: 'point', magnitude: -10, direction: 'y' }],
       elements,
@@ -34,14 +34,14 @@ describe('computeEquilibriumResidual', () => {
 
   it('uses the equivalent force at midspan for distributed element loads', () => {
     const check = computeEquilibriumResidual(
-      { ...emptyResults, reactions: [{ nodeId: 1, fx: 0, fy: 8, m: -16 }] },
+      { ...emptyResults, reactions: [{ nodeId: 1, fx: 0, fy: 8, m: 16 }] },
       nodes,
       [{ id: 'q1', elementId: 1, type: 'distributed', magnitude: -2, direction: 'y' }],
       elements,
     );
 
     expect(check.extFy).toBe(-8);
-    expect(check.extM).toBe(16);
+    expect(check.extM).toBeCloseTo(-16, 8);
     expect(check.allOk).toBe(true);
   });
 });
@@ -56,7 +56,7 @@ describe('buildSolverDiagnosticSummary', () => {
       results: {
         ...emptyResults,
         maxDeflection: 2,
-        reactions: [{ nodeId: 1, fx: 0, fy: 10, m: -40 }],
+        reactions: [{ nodeId: 1, fx: 0, fy: 10, m: 40 }],
       },
       nodes,
       elements,

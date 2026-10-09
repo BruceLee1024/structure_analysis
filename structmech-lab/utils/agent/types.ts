@@ -45,7 +45,7 @@ export interface AgentAction {
     loadOrdinal?: number;
     nodes?: { id: number; x: number; y: number; restraints: [boolean, boolean, boolean] }[];
     elements?: { id: number; startNode: number; endNode: number; releaseStart?: boolean; releaseEnd?: boolean }[];
-    loads?: { type: string; magnitude: number; direction?: string; elementId?: number; nodeId?: number; location?: number }[];
+    loads?: { type: string; magnitude: number; direction?: string; elementId?: number; nodeId?: number; location?: number; startLocation?: number; endLocation?: number }[];
   };
 }
 

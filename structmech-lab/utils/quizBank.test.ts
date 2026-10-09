@@ -28,7 +28,7 @@ describe('getGeometryQuiz', () => {
     expect(necessaryQuestion.correctOptionId).toBe('necessary');
   });
 
-  it('marks negative W as indeterminate', () => {
+  it('requires a geometry check for negative W', () => {
     const [statusQuestion] = getGeometryQuiz({
       mode: 'truss',
       w: -1,
@@ -38,7 +38,7 @@ describe('getGeometryQuiz', () => {
     });
 
     expect(statusQuestion.correctOptionId).toBe('indeterminate');
-    expect(statusQuestion.options.find(option => option.id === 'indeterminate')?.label).toBe('1次超静定');
+    expect(statusQuestion.options.find(option => option.id === 'indeterminate')?.label).toBe('约束数量有余，待检查构造');
   });
 
   it('uses mode-specific constraint questions', () => {

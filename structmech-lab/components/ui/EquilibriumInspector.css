@@ -1,0 +1,16 @@
+.mechanics-inspector { border:1px solid #26364c; border-radius:10px; background:#0e192b; color:#b8c9db; font-size:11px; }
+.mechanics-inspector>summary { padding:13px 15px; cursor:pointer; color:#e1eaf3; font-weight:600; }
+.mechanics-inspector-body { padding:0 15px 14px; }
+.mechanics-inspector-inputs { display:flex; flex-wrap:wrap; gap:16px; align-items:center; }
+.mechanics-inspector label { display:flex; align-items:center; gap:10px; }
+.mechanics-inspector select { background:#091323; border:1px solid #33465e; border-radius:5px; padding:5px; }
+.mechanics-inspector input { accent-color:#66d4dc; max-width:160px; }
+.mechanics-inspector svg { display:block; max-width:540px; width:100%; margin:8px auto; }
+.mechanics-section-values { display:flex; justify-content:center; gap:24px; flex-wrap:wrap; font-variant-numeric:tabular-nums; }
+.mechanics-inspector p { margin-top:9px; color:#93a9bf; line-height:1.7; }
+.mechanics-inspector table { width:100%; border-collapse:collapse; text-align:right; }
+.mechanics-inspector th,.mechanics-inspector td { padding:6px 10px; border-bottom:1px solid #213247; font-variant-numeric:tabular-nums; }
+.mechanics-inspector th:first-child { text-align:left; }
+.mechanics-inspector .mechanics-pass { color:#74d8c0; }.mechanics-inspector .mechanics-fail { color:#eda577; }
+
+.solver-equilibrium-panel { flex-shrink:0; max-height:240px; overflow:auto; margin:8px; }

@@ -1,3 +1,4 @@
+import { isValidLineLoadRange } from './lineLoads';
 import type { Load, ModelIssue, SolverElement, SolverNode, SolverParams } from '../types';
 
 const distance = (a: SolverNode, b: SolverNode) => Math.hypot(a.x - b.x, a.y - b.y);
@@ -117,11 +118,17 @@ export function validateModel(params: SolverParams, activeLoads: Load[], solverE
     if (load.nodeId === undefined && load.elementId === undefined) {
       issues.push(issue(`load-target-${load.id}`, 'error', '荷载缺少作用对象', `荷载 ${load.id} 未绑定节点或单元。`));
     }
+    if (load.type !== 'moment' && ((load.direction !== undefined && !['x', 'y', 'angle'].includes(load.direction)) || (load.direction === 'angle' && !Number.isFinite(load.angle)))) {
+      issues.push(issue(`load-angle-${load.id}`, 'error', '荷载方向无效', '斜向荷载必须填写有效的角度，0° 向右，90° 向上。'));
+    }
     if (!Number.isFinite(load.magnitude)) {
       issues.push(issue(`load-mag-${load.id}`, 'error', '荷载数值异常', `荷载 ${load.id} 的大小不是有效数字。`));
     }
     if (load.type === 'trapezoidal' && !Number.isFinite(load.magnitudeEnd)) {
       issues.push(issue(`load-mag-end-${load.id}`, 'error', '梯形荷载末端值异常', `荷载 ${load.id} 的末端大小不是有效数字。`));
+    }
+    if ((load.type === 'distributed' || load.type === 'trapezoidal') && !isValidLineLoadRange(load)) {
+      issues.push(issue(`load-range-${load.id}`, 'error', '荷载作用范围无效', '起点和终点应位于单元内，且起点必须小于终点。'));
     }
     if (load.location !== undefined && (load.location < 0 || load.location > 1)) {
       issues.push(issue(`load-loc-${load.id}`, 'warning', '荷载位置越界', `荷载 ${load.id} 的单元位置应在 0 到 1 之间。`));

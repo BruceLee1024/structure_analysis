@@ -118,5 +118,6 @@ export function importSolverModel(text: string): ImportSolverModelResult {
     return { ok: false, error: '文件不是有效的 StructLab 求解器模型。' };
   }
 
+  if (parsed.params.loads.some(load => load.direction === 'angle' && !Number.isFinite(load.angle))) return { ok: false, error: '斜向荷载缺少有效的方向角度。' };
   return { ok: true, params: normalizeImportedParams(parsed.params) };
 }

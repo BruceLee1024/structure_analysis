@@ -1,13 +1,14 @@
 import { useEffect, useRef, useState } from 'react';
 import {
-  solveSpaceFrame,
   type SpaceAnalysisResult,
   type SpaceElement,
   type SpaceLoad,
   type SpaceNode,
   type SpaceSolverOptions,
 } from '../utils/spaceSolver';
-import type { SpaceSolverWorkerRequest, SpaceSolverWorkerResponse } from '../utils/spaceSolver.worker';
+import { createSpaceAnalysisSession } from '../utils/spaceAnalysisSession';
+import type { SpaceSolverBatchInput, SpaceSolverWorkerRequest, SpaceSolverWorkerResponse } from '../utils/spaceSolver.worker';
+import { solveSpaceFrameScenarios, type SpaceScenarioBatchResult } from '../utils/spaceModel';
 
 export type SpaceSolverSource = 'pending' | 'worker' | 'sync-fallback';
 
@@ -16,6 +17,7 @@ export interface SpaceSolverWorkerState {
   isSolving: boolean;
   source: SpaceSolverSource;
   error?: string;
+  batch?: SpaceScenarioBatchResult;
 }
 
 const emptyResult: SpaceAnalysisResult = {
@@ -35,10 +37,12 @@ export function useSpaceSolverWorker(
   options: SpaceSolverOptions = defaultOptions,
   runKey = 0,
   enabled = true,
+  batchInput?: SpaceSolverBatchInput,
 ): SpaceSolverWorkerState {
   const requestIdRef = useRef(0);
   const pendingRequestIdRef = useRef<number | null>(null);
   const workerRef = useRef<Worker | null>(null);
+  const syncSessionRef = useRef<ReturnType<typeof createSpaceAnalysisSession> | null>(null);
   const [state, setState] = useState<SpaceSolverWorkerState>({
     result: emptyResult,
     isSolving: true,
@@ -48,6 +52,8 @@ export function useSpaceSolverWorker(
   useEffect(() => () => {
     workerRef.current?.terminate();
     workerRef.current = null;
+    syncSessionRef.current?.clear();
+    syncSessionRef.current = null;
   }, []);
 
   useEffect(() => {
@@ -66,20 +72,25 @@ export function useSpaceSolverWorker(
       ...prev,
       isSolving: true,
       error: undefined,
+      batch: undefined,
     }));
 
     const runSyncFallback = (fallbackError?: string) => {
       try {
-        const result = solveSpaceFrame(nodes, elements, loads, options);
+        syncSessionRef.current ??= createSpaceAnalysisSession();
+        const batch = batchInput ? solveSpaceFrameScenarios(batchInput.model, batchInput.targets, options, syncSessionRef.current) : undefined;
+        const result = batch ? batch.results[0]?.result ?? emptyResult : syncSessionRef.current.solve(nodes, elements, loads, options);
         if (!cancelled && requestIdRef.current === requestId) {
           pendingRequestIdRef.current = null;
-          setState({ result, isSolving: false, source: 'sync-fallback', error: fallbackError });
+          setState({ result, batch, isSolving: false, source: 'sync-fallback', error: fallbackError });
         }
       } catch (error) {
         if (!cancelled && requestIdRef.current === requestId) {
           pendingRequestIdRef.current = null;
           setState(prev => ({
             ...prev,
+            result: { ...emptyResult, status: 'failed', error: error instanceof Error ? error.message : '空间结构求解失败。' },
+            batch: undefined,
             isSolving: false,
             source: 'sync-fallback',
             error: error instanceof Error ? error.message : '空间结构求解失败。',
@@ -119,7 +130,7 @@ export function useSpaceSolverWorker(
       if (message.ok === false) {
         runSyncFallback(message.error);
       } else {
-        setState({ result: message.result, isSolving: false, source: 'worker' });
+        setState({ result: message.result, batch: message.batch, isSolving: false, source: 'worker' });
       }
     };
 
@@ -132,7 +143,7 @@ export function useSpaceSolverWorker(
     };
 
     pendingRequestIdRef.current = requestId;
-    worker.postMessage({
+    worker.postMessage(batchInput ? { id: requestId, kind: 'batch', ...batchInput, options } satisfies SpaceSolverWorkerRequest : {
       id: requestId,
       nodes,
       elements,
@@ -150,7 +161,7 @@ export function useSpaceSolverWorker(
         }
       }
     };
-  }, [nodes, elements, loads, options.backend, options.tolerance, options.maxIterations, options.preconditioner, options.fallback, options.diagnostics, runKey, enabled]);
+  }, [nodes, elements, loads, options.backend, options.tolerance, options.maxIterations, options.preconditioner, options.fallback, options.diagnostics, runKey, enabled, batchInput]);
 
   return state;
 }

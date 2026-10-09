@@ -1,5 +1,6 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { ChevronDown, FileDown, FileText, FileUp, RotateCcw } from 'lucide-react';
+import { getLineLoadRange, isValidLineLoadRange } from '../../utils/lineLoads';
+import React, { useState, useRef, useEffect, useCallback, createContext, useContext } from 'react';
+import { ChevronDown, RotateCcw } from 'lucide-react';
 import { SolverParams, StructureType, Load, DiagramLayerSettings, ModelIssue, AnalysisTargetType } from '../../types';
 import GeometryEditor from './GeometryEditor';
 import {
@@ -20,6 +21,11 @@ import {
   type SectionShape,
 } from '../../utils/sectionLibrary';
 
+const controlGroups = ['模型', '荷载', '工况', '显示', '校验'] as const;
+type ControlGroup = typeof controlGroups[number];
+const ControlGroupContext = createContext<ControlGroup>('模型');
+const sectionGroups: Record<string, ControlGroup> = { '建模设置': '模型', '截面属性': '模型', '单位体系': '模型', '几何建模': '模型', '荷载管理': '荷载', '工况与组合': '工况', '工程限值': '工况', '图层显示': '显示', '模型校验': '校验' };
+
 type DiagramToggleKey = Exclude<keyof DiagramLayerSettings, 'diagramScale'>;
 
 interface ControlPanelProps {
@@ -31,11 +37,7 @@ interface ControlPanelProps {
   validationIssues: ModelIssue[];
   diagramLayers: DiagramLayerSettings;
   setDiagramLayers: React.Dispatch<React.SetStateAction<DiagramLayerSettings>>;
-  modelFileStatus: { type: 'success' | 'error'; message: string } | null;
-  onSaveModel: () => void;
-  onImportModelText: (text: string) => void;
   onResetModel: () => void;
-  onExportReport: () => void;
 }
 
 interface CollapsibleSectionProps {
@@ -60,11 +62,13 @@ const CollapsibleSection: React.FC<CollapsibleSectionProps> = ({
   children,
 }) => {
   const [isOpen, setIsOpen] = useState(defaultOpen);
+  const activeGroup = useContext(ControlGroupContext);
 
   return (
-    <div className={className ?? 'overflow-hidden rounded-xl border border-slate-800 bg-slate-900/55'}>
+    <div hidden={sectionGroups[title] !== activeGroup} className={className ?? 'overflow-hidden rounded-lg border border-slate-800 bg-slate-900/55'}>
       <button
         type="button"
+        aria-expanded={isOpen}
         onClick={() => setIsOpen(prev => !prev)}
         className={`flex w-full items-center justify-between px-3 py-2.5 text-left transition-colors hover:bg-slate-900 ${
           isOpen ? 'border-b border-slate-800/80' : ''
@@ -209,12 +213,9 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
   validationIssues,
   diagramLayers,
   setDiagramLayers,
-  modelFileStatus,
-  onSaveModel,
-  onImportModelText,
   onResetModel,
-  onExportReport,
 }) => {
+  const [activeGroup, setActiveGroup] = useState<ControlGroup>('模型');
   const [selectedMaterialId, setSelectedMaterialId] = useState(MATERIAL_PRESETS[0]?.id ?? '');
   const [selectedSectionId, setSelectedSectionId] = useState(SECTION_PRESETS[1]?.id ?? '');
   const [sectionShape, setSectionShape] = useState<SectionShape>('rectangle');
@@ -227,7 +228,6 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
     thicknessMm: 8,
   });
   const [showCombinationEditor, setShowCombinationEditor] = useState(false);
-  const importInputRef = useRef<HTMLInputElement>(null);
 
   const loadCases = getLoadCases(params);
   const loadCombinations = getLoadCombinations(params);
@@ -356,7 +356,7 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
   const updateLoad = (id: string, field: keyof Load, value: any) => {
       setParams(prev => ({
           ...prev,
-          loads: prev.loads.map(l => l.id === id ? { ...l, [field]: value } : l)
+          loads: prev.loads.map(l => l.id === id ? { ...l, [field]: value, ...(field === 'direction' && value === 'angle' ? { angle: l.angle ?? 45 } : {}) } : l)
       }));
   };
 
@@ -420,20 +420,6 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
       return Math.sqrt(Math.pow(n2.x - n1.x, 2) + Math.pow(n2.y - n1.y, 2));
   };
 
-  const handleImportFile = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    event.target.value = '';
-    if (!file) return;
-
-    const reader = new FileReader();
-    reader.onload = () => {
-      if (typeof reader.result === 'string') {
-        onImportModelText(reader.result);
-      }
-    };
-    reader.readAsText(file);
-  };
-
   const isAxiallyRigid = params.stiffnessType === 'AxiallyRigid';
   const isRigid = params.stiffnessType === 'Rigid';
   const applyCalculatedSection = () => {
@@ -449,96 +435,15 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
   const showOverhang = params.structureType === StructureType.Beam || params.structureType === StructureType.MultiSpanBeam;
 
   return (
-    <div className="w-[22rem] xl:w-[23rem] 2xl:w-[24rem] flex-shrink-0 bg-slate-950 flex flex-col border-r border-slate-800 h-full">
-      <div className="shrink-0 border-b border-slate-800 bg-slate-950/95 px-3 py-3">
-        <input
-          ref={importInputRef}
-          type="file"
-          accept=".json,application/json"
-          onChange={handleImportFile}
-          className="hidden"
-        />
-        <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0">
-            <div className="flex items-center gap-2">
-              <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-indigo-500/30 bg-indigo-500/15 text-indigo-200">
-                <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 7h16M7 7v10m10-10v10M4 17h16" />
-                </svg>
-              </div>
-              <div className="min-w-0">
-                <h1 className="truncate text-sm font-black leading-tight text-white">结构求解器</h1>
-                <p className="text-[10px] font-medium text-slate-500">矩阵位移法</p>
-              </div>
-            </div>
-          </div>
-          <div className="flex shrink-0 items-center gap-1">
-            <button
-              onClick={onExportReport}
-              className="flex h-7 w-7 items-center justify-center rounded-md border border-slate-700 bg-slate-900 text-slate-400 transition-colors hover:border-emerald-500/50 hover:text-emerald-200"
-              title="导出计算报告"
-              aria-label="导出计算报告"
-            >
-              <FileText className="h-3.5 w-3.5" />
-            </button>
-            <button
-              onClick={onSaveModel}
-              className="flex h-7 w-7 items-center justify-center rounded-md border border-slate-700 bg-slate-900 text-slate-400 transition-colors hover:border-cyan-500/50 hover:text-cyan-200"
-              title="保存模型"
-              aria-label="保存模型"
-            >
-              <FileDown className="h-3.5 w-3.5" />
-            </button>
-            <button
-              onClick={() => importInputRef.current?.click()}
-              className="flex h-7 w-7 items-center justify-center rounded-md border border-slate-700 bg-slate-900 text-slate-400 transition-colors hover:border-cyan-500/50 hover:text-cyan-200"
-              title="加载模型"
-              aria-label="加载模型"
-            >
-              <FileUp className="h-3.5 w-3.5" />
-            </button>
-            <button
-              onClick={() => {
-                if (window.confirm('恢复默认模型会替换当前求解模型，是否继续？')) onResetModel();
-              }}
-              className="flex h-7 w-7 items-center justify-center rounded-md border border-slate-700 bg-slate-900 text-slate-400 transition-colors hover:border-amber-500/50 hover:text-amber-200"
-              title="恢复默认模型"
-              aria-label="恢复默认模型"
-            >
-              <RotateCcw className="h-3.5 w-3.5" />
-            </button>
-          </div>
-        </div>
-
-        <div className="mt-3 grid grid-cols-[1fr_auto_auto] items-center gap-2 rounded-lg border border-slate-800 bg-slate-900/70 px-2 py-1.5">
-          <div className="min-w-0">
-            <div className="truncate text-[10px] text-slate-500">当前计算</div>
-            <div className="truncate text-[11px] font-semibold text-slate-200">{activeAnalysis.label}</div>
-          </div>
-          <div className="rounded-md border border-slate-800 bg-slate-950 px-2 py-1 text-center">
-            <div className="text-[8px] font-bold uppercase text-slate-600">Nodes</div>
-            <div className="font-mono text-[11px] font-bold text-indigo-300">{params.nodes.length}</div>
-          </div>
-          <div className="rounded-md border border-slate-800 bg-slate-950 px-2 py-1 text-center">
-            <div className="text-[8px] font-bold uppercase text-slate-600">Elems</div>
-            <div className="font-mono text-[11px] font-bold text-indigo-300">{params.elements.length}</div>
-          </div>
-        </div>
-
-        {modelFileStatus && (
-          <div className={`mt-2 rounded border px-2 py-1.5 text-[10px] ${
-            modelFileStatus.type === 'success'
-              ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-200'
-              : 'border-red-500/30 bg-red-500/10 text-red-200'
-          }`}>
-            {modelFileStatus.message}
-          </div>
-        )}
+    <div className="min-h-0 min-w-0 flex-1 bg-slate-950 flex flex-col">
+      <div role="tablist" aria-label="配置分类" className="flex shrink-0 gap-1 border-b border-slate-800 px-3 py-2">
+        {controlGroups.map(group => <button key={group} role="tab" id={`config-tab-${group}`} aria-controls="config-fields" aria-selected={activeGroup === group} tabIndex={activeGroup === group ? 0 : -1} onKeyDown={event => { if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return; event.preventDefault(); const index = controlGroups.indexOf(group); const next = event.key === 'Home' ? 0 : event.key === 'End' ? 4 : (index + (event.key === 'ArrowRight' ? 1 : 4)) % 5; setActiveGroup(controlGroups[next]); document.getElementById(`config-tab-${controlGroups[next]}`)?.focus(); }} onClick={() => setActiveGroup(group)} className={`flex-1 rounded px-2 py-2 text-xs ${activeGroup === group ? 'bg-slate-800 text-white' : 'text-slate-500 hover:bg-slate-900 hover:text-slate-200'}`}>{group}</button>)}
       </div>
-
-      <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-3 py-3">
+      <ControlGroupContext.Provider value={activeGroup}>
+      <div id="config-fields" role="tabpanel" aria-labelledby={`config-tab-${activeGroup}`} className="min-h-0 flex-1 space-y-3 overflow-y-auto px-3 py-3">
       <CollapsibleSection
         title="建模设置"
+        defaultOpen={true}
         accentClass="text-indigo-300"
         subtitle="结构类别、参数化几何与尺寸控制"
         headerRight={
@@ -553,35 +458,9 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
               <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">结构类型</div>
               <div className="text-[9px] text-slate-600">选择后自动生成几何</div>
             </div>
-            <div className="grid grid-cols-2 gap-1.5">
-              {STRUCTURE_OPTIONS.map(option => {
-                const active = params.structureType === option.type;
-                return (
-                  <button
-                    key={option.type}
-                    type="button"
-                    onClick={() => handleChange('structureType', option.type)}
-                    className={`min-h-12 rounded-lg border px-2.5 py-2 text-left transition-colors ${
-                      active
-                        ? 'border-indigo-400/70 bg-indigo-500/20 text-indigo-50'
-                        : 'border-slate-800 bg-slate-950/35 text-slate-300 hover:border-slate-700 hover:bg-slate-900'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="truncate text-[11px] font-semibold">{option.label}</span>
-                      <span className={`rounded px-1.5 py-0.5 text-[8px] font-semibold ${
-                        active ? 'bg-indigo-300/20 text-indigo-100' : 'bg-slate-800 text-slate-500'
-                      }`}>
-                        {categoryLabel[option.category]}
-                      </span>
-                    </div>
-                    <div className={`mt-1 truncate text-[9px] ${active ? 'text-indigo-100/70' : 'text-slate-500'}`}>
-                      {option.meta}
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
+            <select aria-label="结构模板" value={params.structureType} onChange={event => handleChange('structureType', event.target.value as StructureType)} className="w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-slate-200 outline-none focus:border-cyan-500">
+              {STRUCTURE_OPTIONS.map(option => <option key={option.type} value={option.type}>{option.label} · {option.meta}</option>)}
+            </select>
           </div>
 
           <div className="border-t border-slate-800/70 pt-3">
@@ -889,13 +768,36 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
                                     className="w-full bg-transparent text-white text-center focus:outline-none font-mono border-b border-slate-700 focus:border-blue-500 text-[10px]"/>
                             </div>
                         </div>
+                        {isElementLoad && (load.type === 'distributed' || load.type === 'trapezoidal') && (
+                            <div className="col-span-2 bg-slate-900/50 p-1 rounded border border-slate-800">
+                                <div className="flex justify-between items-center mb-1">
+                                    <span className="text-[10px] text-slate-300">作用范围 (m)</span>
+                                    <button type="button" className="text-[10px] text-blue-400 hover:underline"
+                                        onClick={() => setParams(prev => ({ ...prev, loads: prev.loads.map(l => l.id === load.id ? { ...l, startLocation: 0, endLocation: 1 } : l) }))}>整段</button>
+                                </div>
+                                <div className="grid grid-cols-2 gap-1">
+                                    {(['startLocation', 'endLocation'] as const).map((field, index) => (
+                                        <label key={field} className="text-[10px] text-slate-400">
+                                            {index === 0 ? '起点' : '终点'}
+                                            <input type="number" aria-label={`荷载 ${idx + 1} ${index === 0 ? '起点' : '终点'} (m)`}
+                                                min="0" max={L} step="0.01"
+                                                value={Number(((index === 0 ? getLineLoadRange(load).start : getLineLoadRange(load).end) * L).toFixed(6))}
+                                                onChange={e => updateLoad(load.id, field, Number(e.target.value) / L)}
+                                                className="w-full bg-slate-900 border border-slate-700 rounded px-1 text-white focus:border-blue-500 outline-none" />
+                                        </label>
+                                    ))}
+                                </div>
+                                <p className="mt-1 text-[9px] text-slate-500">从 E{load.elementId} 起点量起，单元长 {L.toFixed(2)} m</p>
+                                {!isValidLineLoadRange(load) && <p role="alert" className="mt-1 text-[10px] text-red-400">起点须小于终点，范围须在单元内。</p>}
+                            </div>
+                        )}
                         {isElementLoad && load.type !== 'distributed' && load.type !== 'trapezoidal' && (
                             <div className="col-span-2 bg-slate-900/50 p-1 rounded border border-slate-800">
                                 <div className="flex justify-between mb-0.5 items-center">
                                     <label className="text-[8px] text-slate-500">位置 (m)</label>
-                                    <span className="text-[8px] text-slate-400">{((load.location || 0.5) * L).toFixed(1)} / {L.toFixed(1)}</span>
+                                    <span className="text-[8px] text-slate-400">{((load.location ?? 0.5) * L).toFixed(1)} / {L.toFixed(1)}</span>
                                 </div>
-                                <input type="range" min="0" max="1" step="0.01" value={load.location || 0.5}
+                                <input type="range" min="0" max="1" step="0.01" value={load.location ?? 0.5}
                                     onChange={(e) => updateLoad(load.id, 'location', Number(e.target.value))}
                                     className="w-full h-1 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-blue-500"/>
                             </div>
@@ -919,9 +821,11 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
                                 className="w-full bg-slate-900 border border-slate-700 rounded px-1 text-white focus:border-rose-500 outline-none h-[20px] text-[10px]">
                                 <option value="y">Y</option>
                                 <option value="x">X</option>
+                                <option value="angle">自定义角度</option>
                             </select>
                         </div>
                         ) : <div></div>}
+                        {load.type !== 'moment' && load.direction === 'angle' && <div className="col-span-2"><label className="text-[10px] text-slate-400">角度（0° 向右，90° 向上）<input aria-label={`荷载 ${load.id} 角度`} type="number" step="any" value={load.angle ?? 45} onChange={e => { if (e.target.value && Number.isFinite(Number(e.target.value))) updateLoad(load.id, 'angle', Number(e.target.value)); }} className="mt-1 w-full rounded border border-slate-700 bg-slate-900 px-2 text-xs text-white" /></label></div>}
                      </div>
                  </div>
              )})}
@@ -932,7 +836,7 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
         title="图层显示"
         accentClass="text-cyan-400"
         subtitle="控制模型与结果图层"
-        defaultOpen={false}
+        defaultOpen={true}
       >
         <div className="grid grid-cols-2 gap-1.5">
           {([
@@ -982,7 +886,7 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
         title="模型校验"
         accentClass={issueSummary.errors > 0 ? 'text-red-400' : issueSummary.warnings > 0 ? 'text-amber-400' : 'text-emerald-400'}
         subtitle={`${issueSummary.errors} 错误 · ${issueSummary.warnings} 警告 · ${issueSummary.infos} 提示`}
-        defaultOpen={issueSummary.errors > 0 || issueSummary.warnings > 0}
+        defaultOpen={true}
       >
         {validationIssues.length === 0 ? (
           <div className="text-[10px] font-semibold leading-relaxed text-emerald-300">
@@ -1009,7 +913,7 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
         )}
       </CollapsibleSection>
 
-      <CollapsibleSection title="截面属性" accentClass="text-emerald-400" subtitle="刚度与截面参数">
+      <CollapsibleSection title="截面属性" accentClass="text-slate-300" subtitle="刚度与截面参数" defaultOpen={false}>
         <div className="space-y-2">
             <div className="grid grid-cols-1 gap-1.5">
                 <div>
@@ -1146,6 +1050,8 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
       </CollapsibleSection>
 
       </div>
+      </ControlGroupContext.Provider>
+      <div className="shrink-0 border-t border-slate-800 px-3 py-3"><button type="button" onClick={() => { if (window.confirm('恢复默认模型会替换当前求解模型，是否继续？')) onResetModel(); }} className="flex items-center gap-2 rounded px-2 py-1 text-[11px] text-slate-500 hover:bg-slate-900 hover:text-amber-200"><RotateCcw size={13} />恢复默认模型</button></div>
     </div>
   );
 };

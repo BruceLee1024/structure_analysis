@@ -29,7 +29,7 @@ const geometryTriggers: AITrigger[] = [
       const W = ctx.results.W;
       return W !== undefined && Number(W) === 0;
     },
-    message: '✅ W=0 表示静定结构。但注意，W=0 是必要条件而非充分条件——还需要检查几何组成是否合理。',
+    message: 'W=0 仅满足无多余约束几何不变体系的数量必要条件。仍须检查几何布置，排除常变或瞬变机构。',
     priority: 'medium',
     cooldown: 120,
     subModules: ['geometry'],
@@ -40,7 +40,7 @@ const geometryTriggers: AITrigger[] = [
       const W = ctx.results.W;
       return W !== undefined && Number(W) < 0;
     },
-    message: '🔒 W<0 说明结构有多余约束，是超静定结构。需要用力法或位移法求解，静力平衡方程不够用了。',
+    message: 'W<0 说明约束数量有余，不能单凭数量认定稳定。先证明几何不变，再以 −W 判定超静定次数。',
     priority: 'medium',
     cooldown: 120,
     subModules: ['geometry'],
@@ -51,7 +51,7 @@ const geometryTriggers: AITrigger[] = [
       const W = ctx.results.W;
       return W !== undefined && Number(W) > 0;
     },
-    message: '⚠️ W>0 表示体系缺少约束，是几何可变体系，不能承受荷载。试试增加杆件或约束！',
+    message: '⚠️ W>0 表示体系缺少约束，是几何可变体系，不能作为一般荷载下的稳定结构。试试增加杆件或约束！',
     priority: 'high',
     cooldown: 60,
     subModules: ['geometry'],
@@ -75,8 +75,8 @@ const beamTriggers: AITrigger[] = [
     id: 'beam-cantilever-moment',
     condition: (ctx) => {
       const beamType = ctx.params.beamType;
-      const Mmax = Number(ctx.results.Mmax);
-      return beamType === 'cantilever' && Math.abs(Mmax) > 80;
+      const fixedMoment = Number(ctx.results.fixedMoment ?? ctx.results.Mmax);
+      return beamType === 'cantilever' && Math.abs(fixedMoment) > 80;
     },
     message: '⚠️ 悬臂梁固定端弯矩较大。实际工程中，悬臂梁跨度通常较短，因为弯矩增长很快。',
     priority: 'medium',
@@ -119,7 +119,7 @@ const trussTriggers: AITrigger[] = [
       const Nt = Number(ctx.results.N_top);
       return !isNaN(Nb) && !isNaN(Nt) && Nb > 0 && Nt < 0;
     },
-    message: '💡 下弦杆受拉、上弦杆受压——这是桁架的典型特征。设计时上弦杆需要验算稳定性（压杆失稳）。',
+    message: '💡 当前工况下，下弦杆受拉、上弦杆受压。试着改变加载节点或方向，观察各杆件的拉压状态如何变化。',
     priority: 'medium',
     cooldown: 120,
     subModules: ['truss'],
@@ -303,7 +303,7 @@ const errorDetectionTriggers: AITrigger[] = [
       const dwell = (Date.now() - ctx.enterTime) / 1000;
       return W === 0 && nodes >= 4 && bars >= 5 && dwell > 30;
     },
-    message: '⚠️ 注意：W=0 只是静定的必要条件，不是充分条件！例如三根平行杆连接的体系 W=0 但是瞬变体系。还需要检查几何组成。',
+    message: '⚠️ 注意：W=0 只是静定的必要条件，不是充分条件！约束布置不当时，可能存在常变或瞬变机构。还需要检查几何组成。',
     priority: 'high',
     cooldown: 300,
     subModules: ['geometry'],

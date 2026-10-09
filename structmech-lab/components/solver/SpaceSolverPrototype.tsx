@@ -52,6 +52,7 @@ import {
   type SpaceVerticalBracingMode,
 } from '../../utils/spaceModel';
 import { useSpaceSolverWorker } from '../../hooks/useSpaceSolverWorker';
+import type { SpaceSolverBatchInput } from '../../utils/spaceSolver.worker';
 import SpaceModelViewport, { type SpaceForceMode, type SpaceSelection } from './SpaceModelViewport';
 
 interface SpaceSolverPrototypeProps {
@@ -110,6 +111,7 @@ interface SpaceAnalysisSnapshot {
   nodes: SpaceNode[];
   elements: SpaceElement[];
   loads: SpaceLoad[];
+  batch?: SpaceSolverBatchInput;
 }
 
 const buildAnalysisKey = (
@@ -797,6 +799,15 @@ const SpaceSolverPrototype: React.FC<SpaceSolverPrototypeProps> = ({ onSwitchToP
     return { type: 'loadCase', id: loadCase?.id ?? model.activeLoadCaseId, label: loadCase?.name ?? '当前工况' };
   }, [activeAnalysisValue, loadCombinations, model.activeLoadCaseId, model.loadCases]);
   const scenarioLoads = useMemo(() => getSpaceScenarioLoads(model, activeAnalysisTarget, loadCombinations), [model, activeAnalysisTarget, loadCombinations]);
+  const allAnalysisTargets = useMemo<SpaceAnalysisTarget[]>(() => [
+    ...model.loadCases.map(item => ({ type: 'loadCase' as const, id: item.id, label: item.name })),
+    ...loadCombinations.map(item => ({ type: 'combination' as const, id: item.id, label: item.name })),
+  ], [model.loadCases, loadCombinations]);
+  const currentBatchKey = useMemo(() => JSON.stringify({
+    nodes: model.nodes, elements: spaceElements,
+    scenarios: allAnalysisTargets.map(target => ({ target, loads: getSpaceScenarioLoads(model, target, loadCombinations) })),
+    selfWeight: model.selfWeight, densities: model.materials.map(item => [item.id, item.density]),
+  }), [model, spaceElements, allAnalysisTargets, loadCombinations]);
   const currentAnalysisKey = useMemo(
     () => buildAnalysisKey(activeAnalysisTarget, model.nodes, spaceElements, scenarioLoads),
     [activeAnalysisTarget, model.nodes, scenarioLoads, spaceElements],
@@ -892,6 +903,15 @@ const SpaceSolverPrototype: React.FC<SpaceSolverPrototypeProps> = ({ onSwitchToP
       loads: scenarioLoads,
     }));
   }, [activeAnalysisTarget, currentAnalysisKey, hasBlockingModelErrors, model.nodes, scenarioLoads, spaceElements]);
+  const runBatchAnalysis = () => {
+    if (hasBlockingModelErrors || allAnalysisTargets.length === 0) return;
+    setAnalysisSnapshot(prev => ({
+      runId: (prev?.runId ?? 0) + 1, key: currentBatchKey, target: activeAnalysisTarget,
+      nodes: model.nodes, elements: spaceElements, loads: scenarioLoads,
+      batch: { model, targets: allAnalysisTargets },
+    }));
+    setActiveWorkspace('results');
+  };
 
   useEffect(() => {
     if (analysisSnapshot || hasBlockingModelErrors) return;
@@ -905,7 +925,7 @@ const SpaceSolverPrototype: React.FC<SpaceSolverPrototypeProps> = ({ onSwitchToP
     });
   }, [activeAnalysisTarget, analysisSnapshot, currentAnalysisKey, hasBlockingModelErrors, model.nodes, scenarioLoads, spaceElements]);
 
-  const isAnalysisStale = !analysisSnapshot || analysisSnapshot.key !== currentAnalysisKey;
+  const isAnalysisStale = !analysisSnapshot || analysisSnapshot.key !== (analysisSnapshot.batch ? currentBatchKey : currentAnalysisKey);
   const solverState = useSpaceSolverWorker(
     analysisSnapshot?.nodes ?? [],
     analysisSnapshot?.elements ?? [],
@@ -913,13 +933,25 @@ const SpaceSolverPrototype: React.FC<SpaceSolverPrototypeProps> = ({ onSwitchToP
     undefined,
     analysisSnapshot?.runId ?? 0,
     Boolean(analysisSnapshot),
+    analysisSnapshot?.batch,
   );
-  const result = solverState.result;
-  const resultTarget = analysisSnapshot?.target ?? activeAnalysisTarget;
+  const batchResult = solverState.batch;
+  const selectedBatchResult = batchResult?.results.find(item => `${item.target.type}:${item.target.id}` === activeAnalysisValue) ?? batchResult?.results[0];
+  const result = selectedBatchResult?.result ?? solverState.result;
+  const resultTarget = selectedBatchResult?.target ?? analysisSnapshot?.target ?? activeAnalysisTarget;
   const resultNodes = analysisSnapshot?.nodes ?? model.nodes;
   const resultElements = analysisSnapshot?.elements ?? spaceElements;
-  const viewportResult = isAnalysisStale ? emptySpaceAnalysisResult : result;
-  const envelopeRows = useMemo(() => buildSpaceResultEnvelopeRows([{ target: resultTarget, result }]), [resultTarget, result]);
+  const viewportResult = isAnalysisStale || solverState.isSolving || result.status === 'failed' ? emptySpaceAnalysisResult : result;
+  const envelopeRows = useMemo(() => batchResult?.envelopeRows ?? buildSpaceResultEnvelopeRows([{ target: resultTarget, result }]), [batchResult, resultTarget, result]);
+  const selectEnvelopeSource = (row: SpaceEnvelopeRow) => {
+    if (!batchResult || !row.sourceType || !row.sourceId) return;
+    setActiveAnalysisValue(`${row.sourceType}:${row.sourceId}`);
+    const member = row.location.match(/单元 (\d+)/);
+    const node = row.location.match(/节点 (\d+)/);
+    if (member) setSelectedEntity({ type: 'member', id: Number(member[1]) });
+    else if (node) setSelectedEntity({ type: 'node', id: Number(node[1]) });
+    setForceMode(row.key.startsWith('axial') ? 'axial' : row.key.startsWith('v') ? 'shear' : /^(my|mz)/.test(row.key) ? 'moment' : 'none');
+  };
   const summary = useMemo(() => buildSpaceResultSummary(result), [result]);
   const viewportSummary = useMemo(() => buildSpaceResultSummary(viewportResult), [viewportResult]);
   const serviceabilityRows = useMemo(() => (
@@ -932,13 +964,13 @@ const SpaceSolverPrototype: React.FC<SpaceSolverPrototypeProps> = ({ onSwitchToP
   const selectedSection = model.sections.find(item => item.id === sectionId);
   const issueCounts = {
     errors: issues.filter(issue => issue.severity === 'error').length,
-    warnings: issues.filter(issue => issue.severity === 'warning').length + (viewportResult.error || solverState.error || isAnalysisStale ? 1 : 0),
+    warnings: issues.filter(issue => issue.severity === 'warning').length + (result.error || solverState.error || isAnalysisStale ? 1 : 0),
     infos: issues.filter(issue => issue.severity === 'info').length,
   };
   const diagnosticItems = [
     ...issues,
     ...(isAnalysisStale ? [{ id: 'analysis-stale', severity: 'warning' as const, title: '模型已修改', detail: '当前模型与最近一次计算快照不一致，请重新计算后再解读变形和内力。' }] : []),
-    ...(viewportResult.error ? [{ id: 'solver-singular', severity: 'warning' as const, title: '求解器提示', detail: viewportResult.error }] : []),
+    ...(!isAnalysisStale && result.error ? [{ id: 'solver-singular', severity: 'warning' as const, title: '求解器提示', detail: result.error }] : []),
     ...(solverState.error ? [{ id: 'solver-worker-fallback', severity: 'info' as const, title: 'Worker 降级', detail: solverState.error }] : []),
   ];
   const solverSourceLabel = solverState.isSolving ? '计算中' : isAnalysisStale ? '待重算' : solverState.source === 'worker' ? 'Worker' : solverState.source === 'sync-fallback' ? 'Fallback' : '待计算';
@@ -948,17 +980,20 @@ const SpaceSolverPrototype: React.FC<SpaceSolverPrototypeProps> = ({ onSwitchToP
     ['后端', solverStats.backend],
     ['请求', solverStats.solverDiagnostics?.requestedBackend ?? '-'],
     ['预条件', solverStats.solverDiagnostics?.preconditioner ?? '-'],
-    ['降级', solverStats.solverDiagnostics?.fallbackUsed ? 'Yes' : 'No'],
+    ['降级', solverStats.solverDiagnostics?.fallbackUsed ? '是' : '否'],
+    ['收敛', solverStats.solverDiagnostics?.converged === undefined ? '-' : solverStats.solverDiagnostics.converged ? '通过' : '失败'],
     ['自由度', `${solverStats.freeDof}/${solverStats.totalDof}`],
     ['非零元', `${solverStats.nnz}`],
     ['SPD', solverStats.matrixDiagnostics?.spdLikely ? 'Likely' : 'Check'],
     ['零行', `${solverStats.matrixDiagnostics?.nearZeroRowCount ?? 0}`],
-    ['病态比', solverStats.matrixDiagnostics?.diagonalRatio === undefined ? '-' : solverStats.matrixDiagnostics.diagonalRatio.toExponential(1)],
+    ['对角比', solverStats.matrixDiagnostics?.diagonalRatio === undefined ? '-' : solverStats.matrixDiagnostics.diagonalRatio.toExponential(1)],
     ['装配', `${format(solverStats.assemblyMs, 2)} ms`],
     ['求解', `${format(solverStats.solveMs, 2)} ms`],
     ['后处理', `${format(solverStats.postprocessMs, 2)} ms`],
     ['迭代', solverStats.iterations === undefined ? '-' : `${solverStats.iterations}`],
-    ['残差', solverStats.relativeResidual === undefined ? '-' : solverStats.relativeResidual.toExponential(2)],
+    ['真实残差', solverStats.relativeResidual === undefined ? '-' : solverStats.relativeResidual.toExponential(2)],
+    ['刚度复用', solverStats.preparation?.stiffnessReused ? '命中' : '新建'],
+    ['准备次数', solverStats.preparation ? `诊断 ${solverStats.preparation.matrixDiagnosticsBuilds} / 分解 ${solverStats.preparation.denseFactorizations} / 预条件 ${solverStats.preparation.preconditionerBuilds}` : '-'],
   ] : [];
   const modelHealth = hasBlockingModelErrors
     ? { label: '需修复', className: 'border-red-500/30 bg-red-500/10 text-red-200' }
@@ -1010,8 +1045,8 @@ const SpaceSolverPrototype: React.FC<SpaceSolverPrototypeProps> = ({ onSwitchToP
           </div>
           <div className="rounded border border-slate-800 bg-slate-900/80 px-2 py-1.5">
             <div className="text-slate-600">结果</div>
-            <div className={`mt-0.5 font-mono font-bold ${isAnalysisStale ? 'text-amber-200' : resultStatusClass[viewportResult.status]}`}>
-              {isAnalysisStale ? 'STALE' : resultStatusLabel[viewportResult.status]}
+            <div className={`mt-0.5 font-mono font-bold ${isAnalysisStale ? 'text-amber-200' : resultStatusClass[result.status]}`}>
+              {isAnalysisStale ? 'STALE' : resultStatusLabel[result.status]}
             </div>
           </div>
           <div className="rounded border border-slate-800 bg-slate-900/80 px-2 py-1.5">
@@ -1110,6 +1145,14 @@ const SpaceSolverPrototype: React.FC<SpaceSolverPrototypeProps> = ({ onSwitchToP
             >
               <Calculator className="h-3.5 w-3.5" />
               {hasBlockingModelErrors ? '修复错误后计算' : solverState.isSolving ? '计算中' : isAnalysisStale ? '重新计算结构' : '计算结构'}
+            </button>
+            <button
+              type="button"
+              onClick={runBatchAnalysis}
+              disabled={solverState.isSolving || hasBlockingModelErrors || allAnalysisTargets.length === 0}
+              className="mt-2 inline-flex min-h-8 w-full items-center justify-center rounded-md border border-slate-700 bg-slate-900 px-2 py-1.5 text-[11px] font-semibold text-slate-200 hover:border-cyan-500/50 disabled:cursor-wait disabled:text-slate-500"
+            >
+              计算全部工况与组合
             </button>
             {isAnalysisStale ? (
               <div className="mt-2 rounded-md border border-amber-500/25 bg-amber-500/10 px-2 py-1.5 text-[10px] font-semibold text-amber-200">
@@ -1913,9 +1956,9 @@ const SpaceSolverPrototype: React.FC<SpaceSolverPrototypeProps> = ({ onSwitchToP
               subtitle="摘要、内力图层与独立结果页"
               accentClass="text-blue-300"
               defaultOpen
-              headerRight={<span className="rounded-md border border-blue-500/25 bg-blue-500/10 px-2 py-1 text-[10px] font-semibold text-blue-200">δ {format(summary.maxDisplacement, 3)}</span>}
+              headerRight={<span className={`rounded-md border border-blue-500/25 bg-blue-500/10 px-2 py-1 text-[10px] font-semibold ${resultStatusClass[result.status]}`}>{result.status === 'failed' ? '求解失败' : `δ ${format(summary.maxDisplacement, 3)}`}</span>}
             >
-              <div className="grid grid-cols-2 gap-2 text-[11px]">
+              {result.status === 'failed' ? <p className="text-xs text-red-200">本次求解失败，请在诊断中检查约束和收敛原因。</p> : <div className="grid grid-cols-2 gap-2 text-[11px]">
                 {[
                   ['最大位移', `${format(summary.maxDisplacement, 4)} mm`, 'text-purple-200'],
                   ['最大轴力', `${format(summary.maxAxial)} kN`, 'text-emerald-200'],
@@ -1928,7 +1971,7 @@ const SpaceSolverPrototype: React.FC<SpaceSolverPrototypeProps> = ({ onSwitchToP
                     <div className={`mt-1 font-mono text-sm font-bold ${color}`}>{value}</div>
                   </div>
                 ))}
-              </div>
+              </div>}
 
               <button
                 type="button"
@@ -1958,7 +2001,7 @@ const SpaceSolverPrototype: React.FC<SpaceSolverPrototypeProps> = ({ onSwitchToP
                     {solverStatRows.map(([label, value]) => (
                       <div key={label} className="min-w-0 rounded border border-slate-800 bg-slate-950/55 px-2 py-1.5">
                         <div className="text-slate-500">{label}</div>
-                        <div className="mt-0.5 truncate font-mono font-semibold text-slate-100">{value}</div>
+                        <div className={`mt-0.5 ${label === '准备次数' ? 'whitespace-normal' : 'truncate'} font-mono font-semibold text-slate-100`}>{value}</div>
                       </div>
                     ))}
                   </div>
@@ -1991,7 +2034,23 @@ const SpaceSolverPrototype: React.FC<SpaceSolverPrototypeProps> = ({ onSwitchToP
               <section className="relative min-h-0 overflow-hidden border-r border-slate-800">
                 {viewportPanel}
               </section>
-              <SpaceResultsView
+              <section className="flex min-h-0 flex-col overflow-hidden">
+                {batchResult && !solverState.isSolving ? (
+                  <div className="shrink-0 border-b border-slate-800 bg-slate-900/70 px-4 py-3 text-xs text-slate-300">
+                    <div className="mb-2">批量分析：{batchResult.diagnostics.loadCasesSolved} 个工况 · {batchResult.diagnostics.combinationsSolved} 个组合</div>
+                    <label className="flex flex-wrap items-center gap-2">
+                      查看已计算目标
+                      <select aria-label="查看已计算目标" value={`${resultTarget.type}:${resultTarget.id}`} onChange={event => setActiveAnalysisValue(event.target.value)} disabled={isAnalysisStale} className="min-w-0 rounded border border-slate-700 bg-slate-950 px-2 py-1 text-slate-100">
+                        {batchResult.results.map(item => <option key={`${item.target.type}:${item.target.id}`} value={`${item.target.type}:${item.target.id}`}>{item.target.label} · {item.result.status === 'failed' ? '失败' : item.result.status === 'warning' ? '需检查' : '通过'}</option>)}
+                      </select>
+                    </label>
+                    <p className="mt-2 text-[10px] text-slate-400">包络包含 {batchResult.results.filter(item => item.result.status !== 'failed').length}/{batchResult.results.length} 个有效目标，已排除失败目标。点击包络来源可查看对应工况与位置。</p>
+                    {batchResult.results.some(item => item.result.status === 'warning') ? <p className="mt-1 text-amber-200">{batchResult.results.filter(item => item.result.status === 'warning').length} 个目标需检查，请切换查看提示。</p> : null}
+                    {batchResult.results.some(item => item.result.status === 'failed') ? <p role="alert" className="mt-1 text-amber-200">存在失败目标，当前为不完整包络；请逐项检查后重新计算。</p> : null}
+                  </div>
+                ) : null}
+                <div className="min-h-0 flex-1">
+                {solverState.isSolving || isAnalysisStale ? <div role="status" className="p-4 text-sm text-amber-200">{solverState.isSolving ? '正在计算，请等待本次结果。' : '模型已修改，结果和包络已暂停展示，请重新计算。'}</div> : <SpaceResultsView
                 result={result}
                 summary={summary}
                 activeTarget={resultTarget}
@@ -1999,7 +2058,10 @@ const SpaceSolverPrototype: React.FC<SpaceSolverPrototypeProps> = ({ onSwitchToP
                 serviceabilityRows={serviceabilityRows}
                 worstServiceabilityRow={worstServiceabilityRow}
                 onBackToModel={() => setActiveWorkspace('modeling')}
-              />
+                onSelectEnvelopeSource={batchResult ? selectEnvelopeSource : undefined}
+              />}
+                </div>
+              </section>
             </div>
           ) : (
             viewportPanel
@@ -2018,8 +2080,19 @@ const SpaceResultsView: React.FC<{
   serviceabilityRows: SpaceServiceabilityRow[];
   worstServiceabilityRow: SpaceServiceabilityRow | null;
   onBackToModel: () => void;
-}> = ({ result, summary, activeTarget, envelopeRows, serviceabilityRows, worstServiceabilityRow, onBackToModel }) => {
+  onSelectEnvelopeSource?: (row: SpaceEnvelopeRow) => void;
+}> = ({ result, summary, activeTarget, envelopeRows, serviceabilityRows, worstServiceabilityRow, onBackToModel, onSelectEnvelopeSource }) => {
   const [activeResultTab, setActiveResultTab] = useState<'displacements' | 'reactions' | 'members' | 'envelope' | 'serviceability' | 'equilibrium'>('displacements');
+  if (result.status === 'failed') {
+    return (
+      <div role="alert" className="h-full overflow-auto bg-slate-950 p-4 text-xs text-red-200">
+        <h3 className="mb-3 text-sm font-bold">求解失败，结果不可用</h3>
+        <p className="mb-3">{result.error ?? '请检查模型约束、单位及求解收敛情况。'}</p>
+        <p className="mb-4">本次位移、内力和服务性结果已停止展示，请修复后重新计算。</p>
+        <button type="button" onClick={onBackToModel} className="rounded-md border border-slate-700 px-3 py-2 text-slate-200">返回模型</button>
+      </div>
+    );
+  }
   const resultTabs = [
     { id: 'displacements' as const, label: '节点位移', count: result.displacements.length },
     { id: 'reactions' as const, label: '支座反力', count: result.reactions.length },
@@ -2036,6 +2109,7 @@ const SpaceResultsView: React.FC<{
           <div>
             <h3 className="text-sm font-black text-slate-100">结果表</h3>
             <p className="mt-0.5 text-[10px] text-slate-500">{activeTarget.label} · 按结果类型切换查看</p>
+            {result.error ? <p role="status" className="mt-2 max-h-16 overflow-auto text-xs text-amber-200">{result.error}</p> : null}
           </div>
           <button
             type="button"
@@ -2142,7 +2216,7 @@ const SpaceResultsView: React.FC<{
             {envelopeRows.map(row => (
               <tr key={row.key} className="font-mono text-slate-300">
                 <td className="px-3 py-1.5 font-sans font-bold text-slate-100">{row.label}</td>
-                <td className="px-3 py-1.5">{row.sourceLabel}</td>
+                <td className="px-3 py-1.5">{onSelectEnvelopeSource && row.sourceId ? <button type="button" onClick={() => onSelectEnvelopeSource(row)} aria-label={`查看${row.label}来源：${row.sourceLabel}`} className="text-cyan-200 underline underline-offset-2 hover:text-cyan-100">{row.sourceLabel}</button> : row.sourceLabel}</td>
                 <td className="px-3 py-1.5">{row.location}</td>
                 <td className="px-3 py-1.5 text-cyan-200">{row.value === null ? '-' : format(row.value, 4)}</td>
                 <td className="px-3 py-1.5 text-slate-500">{row.unit}</td>
@@ -2152,37 +2226,40 @@ const SpaceResultsView: React.FC<{
         ) : null}
 
         {activeResultTab === 'serviceability' ? (
-          <ResultsTable title="三维服务性检查" headers={['单元', 'L m', '限值 L/n', '限值 mm', '控制位移 mm', '利用率', '控制节点', '状态']}>
+          <>
+          <p className="mb-3 text-xs text-slate-400">杆内横向挠度参考检查：双端及一般杆件相对端点连线，单端固结杆件相对固端。L/n 为教学参考限值，未替代规范验算或整体层间侧移检查。</p>
+          <ResultsTable title="三维服务性检查" headers={['单元', 'L m', '参考 L/n', '限值 mm', '横向挠度 mm', '利用率', '控制位置 x m', '基准', '状态']}>
             {serviceabilityRows.map(row => (
               <tr key={row.elementId} className="font-mono text-slate-300">
                 <td className="px-3 py-1.5 font-bold text-slate-100">{row.elementId}</td>
                 <td className="px-3 py-1.5">{format(row.lengthM)}</td>
                 <td className="px-3 py-1.5">L/{row.limitRatio}</td>
                 <td className="px-3 py-1.5">{format(row.limitMm, 3)}</td>
-                <td className="px-3 py-1.5 text-purple-200">{format(row.displacementMm, 3)}</td>
+                <td className="px-3 py-1.5 text-purple-200">{format(row.deflectionMm, 3)}</td>
                 <td className={`px-3 py-1.5 ${row.passed ? 'text-emerald-200' : 'text-red-200'}`}>{format(row.utilization * 100, 0)}%</td>
-                <td className="px-3 py-1.5">{row.controllingNodeId}</td>
-                <td className={`px-3 py-1.5 font-bold ${row.passed ? 'text-emerald-200' : 'text-red-200'}`}>{row.passed ? 'PASS' : 'CHECK'}</td>
+                <td className="px-3 py-1.5">{format(row.locationM, 3)}</td>
+                <td className="px-3 py-1.5">{row.reference === 'chord' ? '端点连线' : row.reference === 'fixed-start' ? '起点固端' : '终点固端'}</td>
+                <td className={`px-3 py-1.5 font-bold ${row.passed ? 'text-emerald-200' : 'text-red-200'}`}>{row.passed ? '满足参考值' : '需检查'}</td>
               </tr>
             ))}
           </ResultsTable>
+          </>
         ) : null}
 
         {activeResultTab === 'equilibrium' ? (
-          <ResultsTable title="整体平衡校核" headers={['分量', '总荷载', '总反力', '残差']}>
+          <ResultsTable title="整体平衡校核" headers={['分量 / 单位', '总荷载', '总反力', '残差', '容差']}>
             {(['fx', 'fy', 'fz', 'mx', 'my', 'mz'] as const).map(component => (
               <tr key={component} className="font-mono text-slate-300">
-                <td className="px-3 py-1.5 font-bold uppercase text-slate-100">{component}</td>
+                <td className="px-3 py-1.5 font-bold text-slate-100">{component.toUpperCase()} / {component.startsWith('f') ? 'kN' : 'kN·m'}</td>
                 <td className="px-3 py-1.5">{format(result.equilibrium?.totalLoads[component] ?? 0, 4)}</td>
                 <td className="px-3 py-1.5">{format(result.equilibrium?.totalReactions[component] ?? 0, 4)}</td>
-                <td className="px-3 py-1.5 text-emerald-200">{format(result.equilibrium?.residual[component] ?? 0, 6)}</td>
+                <td className="px-3 py-1.5">{result.equilibrium?.residual[component].toExponential(2) ?? '-'}</td>
+                <td className="px-3 py-1.5">{(component.startsWith('f') ? result.equilibrium?.forceTolerance : result.equilibrium?.momentTolerance)?.toExponential(2) ?? '-'}</td>
               </tr>
             ))}
             <tr className="font-mono text-slate-300">
-              <td className="px-3 py-1.5 font-bold text-slate-100">max</td>
-              <td className="px-3 py-1.5" />
-              <td className="px-3 py-1.5">{result.equilibrium?.passed ? 'PASS' : 'CHECK'}</td>
-              <td className="px-3 py-1.5 text-amber-200">{format(result.equilibrium?.residual.maxAbs ?? 0, 6)}</td>
+              <td className="px-3 py-1.5 font-bold text-slate-100">校核</td>
+              <td className="px-3 py-1.5" colSpan={4}>{result.equilibrium?.passed ? '通过' : '需检查'}</td>
             </tr>
           </ResultsTable>
         ) : null}

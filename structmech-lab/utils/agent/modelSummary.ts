@@ -1,3 +1,4 @@
+import { solverLoadAngle } from '../loadDirection';
 import { StructureType, type AnalysisResult, type Load, type SolverParams } from '@/types';
 import type { AgentModelSummary } from './types';
 
@@ -40,7 +41,7 @@ function describeLoad(load: Load, params: SolverParams): string {
 
   if (load.type === 'point') {
     const directionLabel =
-      load.direction === 'x'
+      load.direction === 'angle' ? `θ = ${solverLoadAngle(load)}°` : load.direction === 'x'
         ? load.magnitude >= 0
           ? '向右'
           : '向左'
@@ -56,7 +57,7 @@ function describeLoad(load: Load, params: SolverParams): string {
   }
 
   if (load.type === 'distributed') {
-    return `${targetLabel}上 ${Math.abs(load.magnitude)}kN/m 分布荷载`;
+    return `${targetLabel}的 ${((load.startLocation ?? 0) * 100).toFixed(1)}%～${((load.endLocation ?? 1) * 100).toFixed(1)}% 段上 ${Math.abs(load.magnitude)}kN/m 分布荷载`;
   }
 
   return `${targetLabel}处 ${Math.abs(load.magnitude)}kN·m 力矩`;

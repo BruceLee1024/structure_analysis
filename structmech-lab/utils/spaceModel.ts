@@ -13,6 +13,7 @@ import {
   type SpaceRotationRelease,
   type SpaceSolverOptions,
 } from './spaceSolver';
+import type { createSpaceAnalysisSession } from './spaceAnalysisSession';
 
 export interface SpaceMaterial {
   id: string;
@@ -94,6 +95,9 @@ export interface SpaceScenarioBatchResult {
     loadCasesSolved: number;
     combinationsSolved: number;
     stiffnessAssemblies: number;
+    matrixDiagnosticsBuilds: number;
+    denseFactorizations: number;
+    preconditionerBuilds: number;
     loadVectorsBuilt: number;
     warnings: string[];
   };
@@ -606,14 +610,22 @@ export function solveSpaceFrameScenarios(
   model: SpaceModel,
   targets: SpaceAnalysisTarget[],
   options?: SpaceSolverOptions,
+  session?: ReturnType<typeof createSpaceAnalysisSession>,
 ): SpaceScenarioBatchResult {
+  if (targets.length === 0) return {
+    results: [], envelopeRows: buildSpaceResultEnvelopeRows([]),
+    diagnostics: { targetsSolved: 0, loadCasesSolved: 0, combinationsSolved: 0, stiffnessAssemblies: 0, matrixDiagnosticsBuilds: 0, denseFactorizations: 0, preconditionerBuilds: 0, loadVectorsBuilt: 0, warnings: [] },
+  };
   const combinations = getSpaceLoadCombinations(model);
   const elements = resolveSpaceElements(model);
-  const context = prepareSpaceFrameAnalysis(model.nodes, elements);
-  const results = targets.map(target => ({
-    target,
-    result: solveSpaceFrameScenarioWithContext(model, context, target, combinations, options),
-  }));
+  const context = session ? undefined : prepareSpaceFrameAnalysis(model.nodes, elements);
+  const results = targets.map(target => {
+    const loads = getSpaceScenarioLoads(model, target, combinations);
+    const result = session
+      ? session.solve(model.nodes, elements, loads, options)
+      : solvePreparedSpaceFrame(context!, loads, options);
+    return { target, result: applyScenarioWarnings(model, target, loads, result) };
+  });
   const warnings = results.flatMap(({ target, result }) => (
     result.stats?.warnings.map(warning => `${target.label}: ${warning}`) ?? []
   ));
@@ -625,23 +637,14 @@ export function solveSpaceFrameScenarios(
       targetsSolved: results.length,
       loadCasesSolved: targets.filter(target => target.type === 'loadCase').length,
       combinationsSolved: targets.filter(target => target.type === 'combination').length,
-      stiffnessAssemblies: targets.length > 0 ? 1 : 0,
+      stiffnessAssemblies: results.filter(item => !item.result.stats?.preparation?.stiffnessReused).length,
+      matrixDiagnosticsBuilds: results.at(-1)?.result.stats?.preparation?.matrixDiagnosticsBuilds ?? 0,
+      denseFactorizations: results.at(-1)?.result.stats?.preparation?.denseFactorizations ?? 0,
+      preconditionerBuilds: results.at(-1)?.result.stats?.preparation?.preconditionerBuilds ?? 0,
       loadVectorsBuilt: targets.length,
       warnings,
     },
   };
-}
-
-function solveSpaceFrameScenarioWithContext(
-  model: SpaceModel,
-  context: ReturnType<typeof prepareSpaceFrameAnalysis>,
-  target: SpaceAnalysisTarget,
-  combinations = getSpaceLoadCombinations(model),
-  options?: SpaceSolverOptions,
-): SpaceAnalysisResult {
-  const loads = getSpaceScenarioLoads(model, target, combinations);
-  const result = solvePreparedSpaceFrame(context, loads, options);
-  return applyScenarioWarnings(model, target, loads, result);
 }
 
 const envelopeMeta: Record<SpaceEnvelopeRowKey, { label: string; unit: string }> = {
@@ -718,6 +721,7 @@ export function buildSpaceResultEnvelopeRows(items: SpaceEnvelopeInput[]): Space
   });
 
   items.forEach(({ target, result }) => {
+    if (result.status === 'failed') return;
     result.elements.forEach(element => {
       element.stations.forEach(station => {
         const location = `单元 ${element.elementId} · x=${station.x.toFixed(2)} m`;
